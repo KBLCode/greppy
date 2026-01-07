@@ -301,7 +301,6 @@ impl Default for LlmCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::query::{QueryEnhancement, QueryFilters};
 
     #[test]
     fn test_normalize_query() {
