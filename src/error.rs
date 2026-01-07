@@ -49,4 +49,13 @@ pub enum GreppyError {
 
     #[error("Notify error: {0}")]
     Notify(#[from] notify::Error),
+
+    #[error("Auth error: {0}")]
+    Auth(String),
+}
+
+impl From<anyhow::Error> for GreppyError {
+    fn from(err: anyhow::Error) -> Self {
+        GreppyError::Auth(err.to_string())
+    }
 }

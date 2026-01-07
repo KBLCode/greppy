@@ -77,6 +77,10 @@ pub enum Commands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Use LLM-powered smart search (requires authentication)
+        #[arg(short, long)]
+        smart: bool,
     },
 
     /// Index the current project
@@ -105,6 +109,24 @@ pub enum Commands {
 
     /// Ping the daemon (health check)
     Ping,
+
+    /// Manage authentication for LLM features
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum AuthCommands {
+    /// Login with your Anthropic account
+    Login,
+
+    /// Logout and clear stored credentials
+    Logout,
+
+    /// Show authentication status
+    Status,
 }
 
 impl Cli {
