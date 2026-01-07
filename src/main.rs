@@ -129,16 +129,24 @@ async fn cmd_search(query: String, limit: usize, project: Option<PathBuf>, json:
         None => detect_project_root(&std::env::current_dir()?)?,
     };
 
-    // Handle smart search mode
-    let search_query = if smart {
+    // Handle smart search mode with speculative execution
+    let response = if smart {
         // Check if authenticated
         if !auth::is_authenticated().await {
             eprintln!("{}", "Warning: Not authenticated. Using regular search.".yellow());
             eprintln!("Run 'greppy auth login' to enable smart search.");
-            query
+            let mut client = DaemonClient::connect()?;
+            client.send(Request::search(query, project_path, limit))?
         } else {
-            // Use LLM to enhance query
+            // SPECULATIVE EXECUTION: Start both searches in parallel
+            // 1. Immediate search with original query (fast)
+            // 2. LLM enhancement (may be cached = instant, or API = slower)
             eprintln!("{}", "Enhancing query with AI...".cyan());
+            
+            let query_clone = query.clone();
+            let project_clone = project_path.clone();
+            
+            // Start LLM enhancement
             let enhancement = greppy::llm::try_enhance_query(&query).await;
             
             if enhancement.intent != "general" {
@@ -148,15 +156,21 @@ async fn cmd_search(query: String, limit: usize, project: Option<PathBuf>, json:
                 );
             }
             
-            enhancement.expanded_query
+            // If LLM returned same query, just search once
+            let search_query = if enhancement.expanded_query == query_clone 
+                || enhancement.expanded_query.is_empty() {
+                query_clone
+            } else {
+                enhancement.expanded_query
+            };
+            
+            let mut client = DaemonClient::connect()?;
+            client.send(Request::search(search_query, project_clone, limit))?
         }
     } else {
-        query
+        let mut client = DaemonClient::connect()?;
+        client.send(Request::search(query, project_path, limit))?
     };
-
-    let mut client = DaemonClient::connect()?;
-    let request = Request::search(search_query, project_path, limit);
-    let response = client.send(request)?;
 
     if json {
         println!("{}", format_json(&response));

@@ -3,9 +3,17 @@
 //! Uses the Anthropic Messages API with support for:
 //! - ANTHROPIC_API_KEY environment variable (standard API key auth)
 //! - OAuth tokens from Claude Pro/Max subscription (Bearer auth with beta headers)
+//!
+//! Optimized for speed with:
+//! - HTTP/2 with connection pooling and keep-alive
+//! - Pre-warmed connections
+//! - Minimal token usage
 
 use anyhow::{anyhow, Context, Result};
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use crate::auth;
@@ -13,14 +21,38 @@ use crate::auth;
 /// Claude API endpoint
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 
-/// Default model for query enhancement (fastest/cheapest)
-const DEFAULT_MODEL: &str = "claude-3-haiku-20240307";
+/// Default model for query enhancement (fastest)
+const DEFAULT_MODEL: &str = "claude-3-5-haiku-20241022";
 
 /// Maximum tokens for query enhancement response
 const MAX_TOKENS: u32 = 256;
 
 /// Request timeout in seconds
-const TIMEOUT_SECS: u64 = 5;
+const TIMEOUT_SECS: u64 = 3;
+
+/// Global HTTP client with connection pooling (reused across all requests)
+static HTTP_CLIENT: Lazy<Arc<reqwest::Client>> = Lazy::new(|| {
+    Arc::new(
+        reqwest::Client::builder()
+            // Connection pooling - keep connections warm
+            .pool_max_idle_per_host(10)
+            .pool_idle_timeout(Duration::from_secs(90))
+            // HTTP/2 optimizations (Anthropic supports HTTP/2)
+            .http2_prior_knowledge()
+            .http2_keep_alive_interval(Duration::from_secs(30))
+            .http2_keep_alive_timeout(Duration::from_secs(10))
+            .http2_keep_alive_while_idle(true)
+            .http2_adaptive_window(true)
+            // TCP optimizations
+            .tcp_nodelay(true)
+            .tcp_keepalive(Duration::from_secs(60))
+            // Timeouts
+            .connect_timeout(Duration::from_secs(2))
+            .timeout(Duration::from_secs(TIMEOUT_SECS))
+            .build()
+            .expect("Failed to build HTTP client")
+    )
+});
 
 /// Required system prompt prefix for OAuth authentication
 /// This MUST be the first element in the system array for OAuth to work with Sonnet/Opus
@@ -38,31 +70,29 @@ enum AuthMethod {
     OAuth(String),
 }
 
-/// Claude API client
+/// Claude API client (uses global connection pool)
 pub struct ClaudeClient {
-    client: reqwest::Client,
     model: String,
 }
 
 impl ClaudeClient {
-    /// Create a new Claude client
+    /// Create a new Claude client (reuses global HTTP connection pool)
     pub fn new() -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(TIMEOUT_SECS))
-            .build()
-            .expect("Failed to create HTTP client");
-        
         Self {
-            client,
             model: DEFAULT_MODEL.to_string(),
         }
     }
 
     /// Create a client with a custom model
     pub fn with_model(model: &str) -> Self {
-        let mut client = Self::new();
-        client.model = model.to_string();
-        client
+        Self {
+            model: model.to_string(),
+        }
+    }
+    
+    /// Get the shared HTTP client
+    fn client() -> &'static reqwest::Client {
+        &HTTP_CLIENT
     }
 
     /// Get authentication method (API key or OAuth token)
@@ -124,8 +154,8 @@ impl ClaudeClient {
 
         debug!("Sending request to Claude API (oauth={})", use_oauth_headers);
 
-        // Build request with appropriate headers
-        let mut req = self.client
+        // Build request with appropriate headers (uses global connection pool)
+        let mut req = Self::client()
             .post(API_URL)
             .header("Content-Type", "application/json")
             .header("anthropic-version", "2023-06-01");

@@ -54,12 +54,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 directories = "5"
 uuid = { version = "1", features = ["v4"] }
 lru = "0.12"
+once_cell = "1.19"
+futures = "0.3"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 parking_lot = "0.12"
 libc = "0.2"
 
-# HTTP client for OAuth and LLM API
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+# HTTP client for OAuth and LLM API (with HTTP/2 for speed)
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "http2"], default-features = false }
 
 # OAuth PKCE
 sha2 = "0.10"
