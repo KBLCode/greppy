@@ -1,0 +1,40 @@
+# Build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Greppy data (user-specific)
+.greppy/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Test artifacts
+/coverage/
+*.profraw
+*.profdata
+
+# Cargo lock for libraries (keep for binaries)
+# Cargo.lock
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
