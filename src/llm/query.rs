@@ -11,24 +11,12 @@ use super::cache::LlmCache;
 use super::client::ClaudeClient;
 
 /// System prompt for query enhancement
-pub const SYSTEM_PROMPT: &str = r#"You are a code search query optimizer. Given a natural language query about code, extract the intent and expand it into search terms that will match code effectively.
+pub const SYSTEM_PROMPT: &str = r#"Expand code search query into related terms. JSON only:
+{"intent":"general","entity_type":null,"expanded_query":"term1 term2 term3","filters":{"symbol_types":null,"exclude_tests":true,"file_patterns":null}}
 
-Respond with JSON only, no markdown formatting:
-{
-  "intent": "find_definition|find_usage|find_implementation|understand_flow|find_error_handling|general",
-  "entity_type": "function|class|method|variable|type|module|interface|trait|struct|enum|null",
-  "expanded_query": "space-separated search terms including synonyms and related terms",
-  "filters": {
-    "symbol_types": ["function", "class"] or null,
-    "exclude_tests": true or false,
-    "file_patterns": ["*.rs", "*.ts"] or null
-  }
-}
-
-Examples:
-- "how does authentication work" -> {"intent":"understand_flow","entity_type":null,"expanded_query":"auth authenticate login session token verify credentials user password jwt oauth","filters":{"symbol_types":null,"exclude_tests":true,"file_patterns":null}}
-- "find the User class" -> {"intent":"find_definition","entity_type":"class","expanded_query":"User class struct type definition","filters":{"symbol_types":["class","struct"],"exclude_tests":true,"file_patterns":null}}
-- "error handling in api routes" -> {"intent":"find_error_handling","entity_type":"function","expanded_query":"error handle catch try except Result Err Error api route endpoint handler","filters":{"symbol_types":["function","method"],"exclude_tests":true,"file_patterns":null}}"#;
+intent: find_definition|find_usage|understand_flow|find_error_handling|general
+entity_type: function|class|method|struct|null
+expanded_query: 8-15 space-separated code terms, synonyms, related concepts"#;
 
 /// Enhanced query result from LLM analysis
 #[derive(Debug, Clone, Serialize, Deserialize)]

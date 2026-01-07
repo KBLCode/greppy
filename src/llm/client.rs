@@ -145,6 +145,7 @@ impl ClaudeClient {
         let request = MessageRequest {
             model: &self.model,
             max_tokens: MAX_TOKENS,
+            temperature: 0.0,
             system: system_content,
             messages: vec![Message {
                 role: "user",
@@ -227,6 +228,7 @@ struct SystemBlock {
 struct MessageRequest<'a> {
     model: &'a str,
     max_tokens: u32,
+    temperature: f32,
     system: Vec<SystemBlock>,
     messages: Vec<Message<'a>>,
 }
