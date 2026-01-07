@@ -137,10 +137,18 @@ async fn cmd_search(query: String, limit: usize, project: Option<PathBuf>, json:
             eprintln!("Run 'greppy auth login' to enable smart search.");
             query
         } else {
-            // TODO: Use LLM to enhance query
-            // For now, just use the original query
-            eprintln!("{}", "Smart search enabled (LLM query enhancement coming soon)".cyan());
-            query
+            // Use LLM to enhance query
+            eprintln!("{}", "Enhancing query with AI...".cyan());
+            let enhancement = greppy::llm::try_enhance_query(&query).await;
+            
+            if enhancement.intent != "general" {
+                eprintln!(
+                    "{}",
+                    format!("Intent: {} | Expanded: {}", enhancement.intent, &enhancement.expanded_query).dimmed()
+                );
+            }
+            
+            enhancement.expanded_query
         }
     } else {
         query

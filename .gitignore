@@ -22,6 +22,14 @@ Thumbs.db
 .env.local
 .env.*.local
 
+# Auth/credentials (NEVER commit these)
+auth.json
+**/auth.json
+*.key
+*.pem
+**/credentials*
+**/secrets*
+
 # Logs
 *.log
 logs/
