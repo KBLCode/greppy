@@ -11,6 +11,10 @@
 
 **Sub-millisecond local code search for AI coding tools.**
 
+<p align="center">
+  <img src="Greppy.gif" alt="Greppy demo" width="600">
+</p>
+
 ```
 $ greppy search "authentication middleware"
 Found 12 results for "authentication middleware" (0.89ms)
