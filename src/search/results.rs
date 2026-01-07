@@ -19,6 +19,20 @@ pub struct SearchResult {
     pub language: String,
     /// BM25 relevance score
     pub score: f32,
+    // New AST-aware fields
+    /// Function/method signature
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+    /// Parent symbol (for methods in classes)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_symbol: Option<String>,
+    /// Documentation comment
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc_comment: Option<String>,
+    /// Whether this symbol is exported/public
+    pub is_exported: bool,
+    /// Whether this is a test function
+    pub is_test: bool,
 }
 
 /// Response containing search results and metadata

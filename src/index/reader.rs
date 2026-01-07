@@ -8,6 +8,22 @@ use tantivy::query::{BooleanQuery, BoostQuery, Occur, Query, TermQuery};
 use tantivy::schema::{IndexRecordOption, Value};
 use tantivy::{Index, IndexReader, ReloadPolicy, Term, TantivyDocument};
 
+/// Scoring weights for multi-factor ranking
+mod scoring {
+    /// Boost for exact symbol name match
+    pub const SYMBOL_NAME_BOOST: f32 = 3.0;
+    /// Boost for signature match (parameter types, return types)
+    pub const SIGNATURE_BOOST: f32 = 1.5;
+    /// Boost for doc comment match (semantic relevance)
+    pub const DOC_COMMENT_BOOST: f32 = 1.0;
+    /// Boost for parent symbol match (class/module context)
+    pub const PARENT_SYMBOL_BOOST: f32 = 1.0;
+    /// Boost for exported/public symbols (more likely to be API entry points)
+    pub const EXPORTED_BOOST: f32 = 0.5;
+    /// Penalty for test code (usually less relevant for main queries)
+    pub const TEST_PENALTY: f32 = 0.5;
+}
+
 #[derive(Clone)]
 pub struct IndexSearcher {
     reader: IndexReader,
@@ -55,25 +71,49 @@ impl IndexSearcher {
             return Ok(Vec::new());
         }
 
+        // Build multi-factor query with boosted fields
         let mut subqueries: Vec<(Occur, Box<dyn Query>)> = Vec::new();
         for token in &tokens {
+            // Content match (base BM25)
             let content_term = Term::from_field_text(self.schema.content, token);
             let content_query = TermQuery::new(content_term, IndexRecordOption::WithFreqs);
             subqueries.push((Occur::Should, Box::new(content_query)));
 
+            // Symbol name match (high boost - exact symbol matches are very relevant)
             let symbol_term = Term::from_field_text(self.schema.symbol_name, token);
             let symbol_query = TermQuery::new(symbol_term, IndexRecordOption::WithFreqs);
-            let boosted = BoostQuery::new(Box::new(symbol_query), 3.0);
+            let boosted = BoostQuery::new(Box::new(symbol_query), scoring::SYMBOL_NAME_BOOST);
             subqueries.push((Occur::Should, Box::new(boosted)));
+
+            // Signature match (medium boost - parameter/return type matches)
+            let sig_term = Term::from_field_text(self.schema.signature, token);
+            let sig_query = TermQuery::new(sig_term, IndexRecordOption::WithFreqs);
+            let sig_boosted = BoostQuery::new(Box::new(sig_query), scoring::SIGNATURE_BOOST);
+            subqueries.push((Occur::Should, Box::new(sig_boosted)));
+
+            // Doc comment match (semantic relevance)
+            let doc_term = Term::from_field_text(self.schema.doc_comment, token);
+            let doc_query = TermQuery::new(doc_term, IndexRecordOption::WithFreqs);
+            let doc_boosted = BoostQuery::new(Box::new(doc_query), scoring::DOC_COMMENT_BOOST);
+            subqueries.push((Occur::Should, Box::new(doc_boosted)));
+
+            // Parent symbol match (class/module context)
+            let parent_term = Term::from_field_text(self.schema.parent_symbol, token);
+            let parent_query = TermQuery::new(parent_term, IndexRecordOption::WithFreqs);
+            let parent_boosted = BoostQuery::new(Box::new(parent_query), scoring::PARENT_SYMBOL_BOOST);
+            subqueries.push((Occur::Should, Box::new(parent_boosted)));
         }
 
         let query = BooleanQuery::new(subqueries);
+        
+        // Fetch more results than needed for post-processing score adjustments
+        let fetch_limit = (limit * 2).max(50);
         let top_docs = searcher
-            .search(&query, &TopDocs::with_limit(limit))
+            .search(&query, &TopDocs::with_limit(fetch_limit))
             .map_err(|e| GreppyError::Search(e.to_string()))?;
 
         let mut results = Vec::new();
-        for (score, doc_address) in top_docs {
+        for (base_score, doc_address) in top_docs {
             let doc: TantivyDocument = searcher
                 .doc(doc_address)
                 .map_err(|e| GreppyError::Search(e.to_string()))?;
@@ -92,12 +132,42 @@ impl IndexSearcher {
                 .and_then(|v| v.as_u64()).unwrap_or(0) as usize;
             let language = doc.get_first(self.schema.language)
                 .and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+            
+            // New AST-aware fields
+            let signature = doc.get_first(self.schema.signature)
+                .and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(String::from);
+            let parent_symbol = doc.get_first(self.schema.parent_symbol)
+                .and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(String::from);
+            let doc_comment = doc.get_first(self.schema.doc_comment)
+                .and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(String::from);
+            let is_exported = doc.get_first(self.schema.is_exported)
+                .and_then(|v| v.as_u64()).unwrap_or(0) == 1;
+            let is_test = doc.get_first(self.schema.is_test)
+                .and_then(|v| v.as_u64()).unwrap_or(0) == 1;
+
+            // Apply post-retrieval score adjustments
+            let mut final_score = base_score;
+            
+            // Boost exported symbols (more likely to be API entry points)
+            if is_exported {
+                final_score += scoring::EXPORTED_BOOST;
+            }
+            
+            // Penalize test code (usually less relevant for main queries)
+            if is_test {
+                final_score -= scoring::TEST_PENALTY;
+            }
 
             results.push(SearchResult {
                 path, content, symbol_name, symbol_type,
-                start_line, end_line, language, score,
+                start_line, end_line, language, score: final_score,
+                signature, parent_symbol, doc_comment, is_exported, is_test,
             });
         }
+
+        // Re-sort by adjusted score and take top N
+        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.truncate(limit);
 
         Ok(results)
     }

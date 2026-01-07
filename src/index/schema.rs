@@ -14,6 +14,12 @@ pub struct IndexSchema {
     pub end_line: Field,
     pub language: Field,
     pub file_hash: Field,
+    // New AST-aware fields
+    pub signature: Field,
+    pub parent_symbol: Field,
+    pub doc_comment: Field,
+    pub is_exported: Field,
+    pub is_test: Field,
 }
 
 impl IndexSchema {
@@ -39,7 +45,7 @@ impl IndexSchema {
                     .set_index_option(IndexRecordOption::WithFreqs),
             )
             .set_stored();
-        let symbol_name = builder.add_text_field("symbol_name", symbol_opts);
+        let symbol_name = builder.add_text_field("symbol_name", symbol_opts.clone());
         let symbol_type = builder.add_text_field("symbol_type", STRING | STORED);
 
         let start_line = builder.add_u64_field("start_line", FAST | STORED);
@@ -47,10 +53,29 @@ impl IndexSchema {
         let language = builder.add_text_field("language", STRING | STORED);
         let file_hash = builder.add_text_field("file_hash", STRING | STORED);
 
+        // New AST-aware fields
+        // Signature is searchable (for finding functions by parameter types)
+        let signature = builder.add_text_field("signature", symbol_opts.clone());
+        // Parent symbol for hierarchical search (e.g., find methods of a class)
+        let parent_symbol = builder.add_text_field("parent_symbol", symbol_opts);
+        // Doc comments are searchable for semantic matching
+        let doc_comment_opts = TextOptions::default()
+            .set_indexing_options(
+                TextFieldIndexing::default()
+                    .set_tokenizer("default")
+                    .set_index_option(IndexRecordOption::WithFreqs),
+            )
+            .set_stored();
+        let doc_comment = builder.add_text_field("doc_comment", doc_comment_opts);
+        // Boolean flags stored as u64 for fast filtering
+        let is_exported = builder.add_u64_field("is_exported", FAST | STORED);
+        let is_test = builder.add_u64_field("is_test", FAST | STORED);
+
         Self {
             schema: builder.build(),
             id, path, content, symbol_name, symbol_type,
             start_line, end_line, language, file_hash,
+            signature, parent_symbol, doc_comment, is_exported, is_test,
         }
     }
 }

@@ -17,6 +17,20 @@ clap = { version = "4", features = ["derive"] }
 # Search engine
 tantivy = "0.22"
 
+# AST parsing with tree-sitter
+tree-sitter = "0.24"
+tree-sitter-rust = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-go = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-c = "0.23"
+tree-sitter-cpp = "0.23"
+
+# Regex for pattern matching
+regex = "1"
+
 # Async runtime
 tokio = { version = "1", features = ["full", "net", "sync", "io-util", "fs", "signal"] }
 

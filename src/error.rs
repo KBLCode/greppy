@@ -20,6 +20,9 @@ pub enum GreppyError {
     #[error("Search error: {0}")]
     Search(String),
 
+    #[error("Parse error: {0}")]
+    Parse(String),
+
     #[error("Daemon not running")]
     DaemonNotRunning,
 

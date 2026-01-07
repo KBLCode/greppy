@@ -46,7 +46,13 @@ impl IndexWriter {
             self.schema.start_line => chunk.start_line as u64,
             self.schema.end_line => chunk.end_line as u64,
             self.schema.language => chunk.language.clone(),
-            self.schema.file_hash => chunk.file_hash.clone()
+            self.schema.file_hash => chunk.file_hash.clone(),
+            // New AST-aware fields
+            self.schema.signature => chunk.signature.clone().unwrap_or_default(),
+            self.schema.parent_symbol => chunk.parent_symbol.clone().unwrap_or_default(),
+            self.schema.doc_comment => chunk.doc_comment.clone().unwrap_or_default(),
+            self.schema.is_exported => if chunk.is_exported { 1u64 } else { 0u64 },
+            self.schema.is_test => if chunk.is_test { 1u64 } else { 0u64 }
         );
         self.writer.add_document(doc)?;
         Ok(())
