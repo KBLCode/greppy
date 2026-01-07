@@ -1,4 +1,5 @@
-use greppy::cli::{Cli, Commands};
+use clap::Parser;
+use greppy::cli::{print_logo, Cli, Commands};
 use greppy::daemon::{
     is_daemon_running, start_daemon, stop_daemon, DaemonClient, DaemonServer, Request,
 };
@@ -17,7 +18,13 @@ async fn main() -> ExitCode {
         .with_target(false)
         .init();
 
-    let cli = Cli::parse_args();
+    // Check if help is requested - print logo first
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() == 1 || args.iter().any(|a| a == "-h" || a == "--help") {
+        print_logo();
+    }
+
+    let cli = Cli::parse();
 
     // Special case: daemon mode
     if cli.daemon_mode {
