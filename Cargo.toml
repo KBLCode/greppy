@@ -29,6 +29,9 @@ notify = "6"
 ignore = "0.4"
 walkdir = "2"
 
+# Terminal colors
+colored = "2"
+
 # Utilities
 thiserror = "1"
 anyhow = "1"

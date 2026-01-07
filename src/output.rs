@@ -1,11 +1,12 @@
 use crate::daemon::{Response, ResponseData, ResponseResult};
 use crate::search::SearchResponse;
+use colored::Colorize;
 
 /// Format output for human consumption
 pub fn format_human(response: &Response) -> String {
     match &response.result {
         ResponseResult::Ok { data } => format_data_human(data),
-        ResponseResult::Error { message } => format!("Error: {}", message),
+        ResponseResult::Error { message } => format!("{} {}", "Error:".red().bold(), message),
     }
 }
 
@@ -19,92 +20,119 @@ fn format_data_human(data: &ResponseData) -> String {
         ResponseData::Search(search) => format_search_human(search),
         ResponseData::Index { project, files_indexed, chunks_indexed, elapsed_ms } => {
             format!(
-                "Indexed {} files ({} chunks) in {:.1}ms\nProject: {}",
-                files_indexed, chunks_indexed, elapsed_ms, project
+                "{} Indexed {} files  {} chunks  {}  {}\n{}",
+                "✓".bright_cyan().bold(),
+                files_indexed.to_string().bright_cyan().bold(),
+                chunks_indexed.to_string().bright_cyan(),
+                format!("{:.1}ms", elapsed_ms).dimmed(),
+                "─".repeat(40).dimmed(),
+                format!("  {}", project).dimmed()
             )
         }
         ResponseData::Status { pid, uptime_secs, projects_indexed, cache_size } => {
             let uptime = format_uptime(*uptime_secs);
             format!(
-                "Daemon Status:\n  PID: {}\n  Uptime: {}\n  Projects indexed: {}\n  Cache entries: {}",
-                pid, uptime, projects_indexed, cache_size
+                "{}  {}  {}  {}  {}",
+                "Daemon".bright_cyan().bold(),
+                format!("pid:{}", pid).dimmed(),
+                format!("up:{}", uptime).bright_white(),
+                format!("projects:{}", projects_indexed).bright_cyan(),
+                format!("cache:{}", cache_size).bright_cyan()
             )
         }
         ResponseData::Projects { projects } => {
             if projects.is_empty() {
-                return "No projects indexed".to_string();
+                return format!("{}", "No projects indexed".dimmed());
             }
-            let mut output = format!("Indexed Projects ({}):\n", projects.len());
+            let mut output = format!("{} ({})  {}\n\n", 
+                "Indexed Projects".bright_cyan().bold(), 
+                projects.len(),
+                "─".repeat(60).dimmed()
+            );
             for p in projects {
                 output.push_str(&format!(
-                    "  {} ({} files)\n    {}\n    Last indexed: {}\n",
-                    p.name, p.files_indexed, p.path, p.last_indexed
+                    "  {}  {} files  {}  {}\n",
+                    p.name.bright_white().bold(),
+                    p.files_indexed.to_string().bright_cyan(),
+                    p.path.dimmed(),
+                    format!("indexed:{}", p.last_indexed).dimmed()
                 ));
             }
             output
         }
         ResponseData::Forgotten { project } => {
-            format!("Removed project from index: {}", project)
+            format!("{} Removed: {}", "✓".bright_cyan().bold(), project.bright_white())
         }
-        ResponseData::Pong => "pong".to_string(),
-        ResponseData::Shutdown => "Daemon shutting down...".to_string(),
+        ResponseData::Pong => format!("{}", "pong".bright_cyan()),
+        ResponseData::Shutdown => format!("{}", "Daemon shutting down...".bright_cyan()),
     }
 }
 
 fn format_search_human(search: &SearchResponse) -> String {
     if search.results.is_empty() {
         return format!(
-            "No results for \"{}\" ({:.2}ms{})",
-            search.query,
-            search.elapsed_ms,
-            if search.cached { ", cached" } else { "" }
+            "{} for \"{}\" {}",
+            "No results".dimmed(),
+            search.query.bright_white(),
+            format!("({:.2}ms{})", search.elapsed_ms, if search.cached { ", cached" } else { "" }).dimmed()
         );
     }
 
+    let cached_indicator = if search.cached { " ⚡" } else { "" };
+
     let mut output = format!(
-        "Found {} results for \"{}\" ({:.2}ms{})\n\n",
-        search.results.len(),
-        search.query,
-        search.elapsed_ms,
-        if search.cached { ", cached" } else { "" }
+        "{} {} results for \"{}\"  {}{}",
+        "Found".bright_cyan().bold(),
+        search.results.len().to_string().bright_cyan().bold(),
+        search.query.bright_white().bold(),
+        format!("{:.2}ms", search.elapsed_ms).dimmed(),
+        cached_indicator.bright_cyan()
     );
+    output.push_str("\n");
+    output.push_str(&format!("{}\n\n", "─".repeat(90).dimmed()));
 
     for (i, result) in search.results.iter().enumerate() {
-        // Header with file path and line numbers
+        // Compact header: number, path, lines, symbol, score - all on one line
+        let symbol_info = if let Some(ref symbol) = result.symbol_name {
+            let symbol_type = result.symbol_type.as_deref().unwrap_or("sym");
+            format!("  {} {}", symbol_type.bright_cyan(), symbol.bright_white())
+        } else {
+            String::new()
+        };
+
         output.push_str(&format!(
-            "{}. {} (lines {}-{})\n",
-            i + 1,
-            result.path,
-            result.start_line,
-            result.end_line
+            "{} {}  {}{}  {}\n",
+            format!("[{}]", i + 1).bright_cyan().bold(),
+            result.path.bright_white().bold(),
+            format!("L{}-{}", result.start_line, result.end_line).dimmed(),
+            symbol_info,
+            format!("score:{:.1}", result.score).dimmed()
         ));
 
-        // Symbol info if available
-        if let Some(ref symbol) = result.symbol_name {
-            let symbol_type = result.symbol_type.as_deref().unwrap_or("symbol");
-            output.push_str(&format!("   {} {}\n", symbol_type, symbol));
-        }
-
-        // Score
-        output.push_str(&format!("   Score: {:.2}\n", result.score));
-
-        // Content preview (first few lines)
-        let preview_lines: Vec<&str> = result.content.lines().take(5).collect();
+        // Content preview - wider lines (140 chars), show more horizontally
+        let preview_lines: Vec<&str> = result.content.lines().take(4).collect();
         for line in preview_lines {
-            let trimmed = if line.len() > 100 {
-                format!("{}...", &line[..100])
-            } else {
-                line.to_string()
-            };
-            output.push_str(&format!("   │ {}\n", trimmed));
+            let trimmed = truncate_str(line, 140);
+            output.push_str(&format!("    {} {}\n", "│".bright_cyan(), trimmed));
         }
-        if result.content.lines().count() > 5 {
-            output.push_str("   │ ...\n");
+        if result.content.lines().count() > 4 {
+            output.push_str(&format!("    {} {}\n", "│".bright_cyan(), format!("... +{} more lines", result.content.lines().count() - 4).dimmed()));
         }
         output.push('\n');
     }
 
     output
+}
+
+/// Safely truncate a string at a char boundary
+fn truncate_str(s: &str, max_chars: usize) -> String {
+    let char_count = s.chars().count();
+    if char_count <= max_chars {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max_chars).collect();
+        format!("{}...", truncated)
+    }
 }
 
 fn format_uptime(secs: u64) -> String {
