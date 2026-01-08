@@ -10,55 +10,327 @@ use tracing::{debug, info};
 use crate::index::IndexSearcher;
 
 /// Common code-related synonyms that don't need LLM
+/// Comprehensive dictionary covering all major programming domains
 const BUILTIN_SYNONYMS: &[(&str, &[&str])] = &[
-    // Authentication
-    ("auth", &["authenticate", "authentication", "login", "logout", "session", "token", "credential", "password", "jwt", "oauth"]),
-    ("login", &["auth", "authenticate", "signin", "sign_in", "logon"]),
-    ("logout", &["signout", "sign_out", "logoff"]),
+    // ═══════════════════════════════════════════════════════════════════════════
+    // AUTHENTICATION & SECURITY
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("auth", &["authenticate", "authentication", "login", "logout", "session", "token", "credential", "password", "jwt", "oauth", "sso", "saml", "identity", "principal", "user", "account"]),
+    ("login", &["auth", "authenticate", "signin", "sign_in", "logon", "credentials", "session"]),
+    ("logout", &["signout", "sign_out", "logoff", "disconnect", "revoke"]),
+    ("permission", &["role", "access", "authorize", "authorization", "rbac", "abac", "acl", "grant", "deny", "policy", "scope", "claim"]),
+    ("security", &["auth", "encrypt", "decrypt", "hash", "salt", "secure", "vulnerability", "xss", "csrf", "injection", "sanitize", "escape"]),
+    ("token", &["jwt", "bearer", "refresh", "access", "apikey", "secret", "credential"]),
+    ("encrypt", &["decrypt", "cipher", "aes", "rsa", "crypto", "cryptography", "hash", "hmac"]),
+    ("password", &["passwd", "secret", "credential", "hash", "bcrypt", "argon", "scrypt"]),
+    ("session", &["cookie", "token", "stateful", "stateless", "expire", "ttl"]),
+    ("oauth", &["oidc", "openid", "sso", "saml", "auth0", "keycloak", "identity"]),
     
-    // Errors
-    ("error", &["err", "exception", "failure", "fail", "panic", "crash", "bug"]),
-    ("handle", &["handler", "handling", "catch", "process"]),
-    ("try", &["catch", "except", "result", "option"]),
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ERRORS & EXCEPTIONS
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("error", &["err", "exception", "failure", "fail", "panic", "crash", "bug", "fault", "issue", "problem", "invalid", "unexpected"]),
+    ("handle", &["handler", "handling", "catch", "process", "manage", "deal", "cope"]),
+    ("try", &["catch", "except", "result", "option", "maybe", "either", "unwrap"]),
+    ("throw", &["raise", "panic", "bail", "abort", "reject", "fail"]),
+    ("recover", &["retry", "fallback", "backup", "restore", "resume", "resilient", "graceful"]),
+    ("debug", &["debugger", "breakpoint", "inspect", "trace", "step", "watch", "diagnose"]),
+    ("stacktrace", &["backtrace", "callstack", "traceback", "stack", "frame"]),
     
-    // CRUD
-    ("create", &["new", "add", "insert", "make", "build", "init", "initialize"]),
-    ("read", &["get", "fetch", "load", "find", "query", "select", "retrieve"]),
-    ("update", &["edit", "modify", "change", "set", "patch", "put"]),
-    ("delete", &["remove", "destroy", "drop", "clear", "purge"]),
+    // ═══════════════════════════════════════════════════════════════════════════
+    // CRUD OPERATIONS
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("create", &["new", "add", "insert", "make", "build", "init", "initialize", "construct", "instantiate", "spawn", "generate", "produce"]),
+    ("read", &["get", "fetch", "load", "find", "query", "select", "retrieve", "lookup", "search", "list", "show", "view"]),
+    ("update", &["edit", "modify", "change", "set", "patch", "put", "mutate", "alter", "replace", "upsert", "merge"]),
+    ("delete", &["remove", "destroy", "drop", "clear", "purge", "erase", "unlink", "dispose", "cleanup", "gc"]),
+    ("save", &["store", "persist", "write", "commit", "flush", "sync"]),
+    ("copy", &["clone", "duplicate", "replicate", "fork", "deep", "shallow"]),
     
-    // Data
-    ("database", &["db", "sql", "postgres", "mysql", "sqlite", "mongo", "redis", "store", "storage"]),
-    ("cache", &["cached", "caching", "memoize", "lru"]),
-    ("config", &["configuration", "settings", "options", "preferences", "env"]),
+    // ═══════════════════════════════════════════════════════════════════════════
+    // DATA & STORAGE
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("database", &["db", "sql", "postgres", "postgresql", "mysql", "sqlite", "mongo", "mongodb", "redis", "store", "storage", "repository", "datastore", "dynamo", "cassandra"]),
+    ("cache", &["cached", "caching", "memoize", "lru", "ttl", "invalidate", "evict", "warm", "cold", "hit", "miss"]),
+    ("config", &["configuration", "settings", "options", "preferences", "env", "environment", "params", "parameters", "dotenv", "yaml", "toml", "json"]),
+    ("schema", &["model", "entity", "table", "collection", "structure", "definition", "type", "interface", "migration", "ddl"]),
+    ("query", &["search", "find", "filter", "where", "select", "lookup", "fetch", "criteria", "predicate"]),
+    ("index", &["indexing", "indexed", "reindex", "search", "lookup", "btree", "hash", "fulltext"]),
+    ("transaction", &["tx", "txn", "commit", "rollback", "atomic", "acid", "isolation", "lock"]),
+    ("migration", &["migrate", "schema", "alter", "ddl", "upgrade", "downgrade", "version"]),
+    ("orm", &["activerecord", "sequelize", "prisma", "typeorm", "sqlalchemy", "hibernate", "entity"]),
+    ("nosql", &["mongo", "mongodb", "dynamo", "dynamodb", "cassandra", "couchdb", "document", "keyvalue"]),
+    ("queue", &["message", "broker", "rabbitmq", "kafka", "sqs", "pubsub", "amqp", "redis"]),
     
-    // API
-    ("api", &["endpoint", "route", "handler", "controller", "rest", "graphql"]),
-    ("request", &["req", "http", "fetch", "call"]),
-    ("response", &["res", "reply", "result"]),
+    // ═══════════════════════════════════════════════════════════════════════════
+    // API & NETWORK
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("api", &["endpoint", "route", "handler", "controller", "rest", "graphql", "rpc", "service", "resource"]),
+    ("request", &["req", "http", "fetch", "call", "invoke", "send", "post", "get", "put", "patch", "delete"]),
+    ("response", &["res", "reply", "result", "return", "output", "answer", "payload", "body"]),
+    ("middleware", &["interceptor", "filter", "hook", "plugin", "pipe", "chain", "layer"]),
+    ("websocket", &["ws", "wss", "socket", "realtime", "push", "stream", "sse", "eventsource", "bidirectional"]),
+    ("client", &["consumer", "caller", "requester", "frontend", "sdk", "library"]),
+    ("server", &["backend", "service", "daemon", "host", "listener", "worker"]),
+    ("http", &["https", "request", "response", "header", "body", "status", "method", "url", "uri"]),
+    ("rest", &["restful", "api", "crud", "resource", "endpoint", "json", "xml"]),
+    ("graphql", &["query", "mutation", "subscription", "resolver", "schema", "apollo", "relay"]),
+    ("grpc", &["protobuf", "proto", "rpc", "streaming", "unary", "bidirectional"]),
+    ("cors", &["crossorigin", "origin", "preflight", "header", "access"]),
+    ("proxy", &["reverse", "forward", "gateway", "load", "balancer", "nginx", "haproxy"]),
+    ("url", &["uri", "path", "route", "endpoint", "link", "href", "slug"]),
+    ("header", &["headers", "authorization", "content", "accept", "cookie", "origin"]),
+    ("status", &["code", "http", "success", "error", "redirect", "client", "server"]),
     
-    // Async
-    ("async", &["await", "promise", "future", "concurrent", "parallel", "thread"]),
-    ("sync", &["synchronous", "blocking", "sequential"]),
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ASYNC & CONCURRENCY
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("async", &["await", "promise", "future", "concurrent", "parallel", "thread", "spawn", "task", "coroutine", "generator"]),
+    ("sync", &["synchronous", "blocking", "sequential", "serial", "mutex", "lock", "semaphore"]),
+    ("channel", &["queue", "buffer", "pipe", "stream", "mpsc", "broadcast", "sender", "receiver"]),
+    ("pool", &["pooling", "connection", "worker", "thread", "executor"]),
+    ("mutex", &["lock", "rwlock", "semaphore", "atomic", "sync", "critical", "section"]),
+    ("thread", &["threading", "multithread", "worker", "spawn", "join", "pool"]),
+    ("promise", &["future", "async", "await", "then", "resolve", "reject", "pending"]),
+    ("callback", &["cb", "handler", "listener", "hook", "continuation"]),
+    ("race", &["condition", "deadlock", "livelock", "starvation", "contention"]),
+    ("timeout", &["deadline", "expire", "ttl", "cancel", "abort"]),
     
-    // Testing
-    ("test", &["spec", "unittest", "integration", "e2e", "mock", "stub", "fixture"]),
+    // ═══════════════════════════════════════════════════════════════════════════
+    // TESTING
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("test", &["spec", "unittest", "unit", "integration", "e2e", "mock", "stub", "fixture", "assert", "expect", "should", "describe", "it"]),
+    ("mock", &["stub", "fake", "spy", "double", "dummy", "jest", "sinon", "vitest"]),
+    ("assert", &["expect", "should", "verify", "check", "ensure", "must"]),
+    ("fixture", &["setup", "teardown", "before", "after", "seed", "factory"]),
+    ("coverage", &["cover", "lcov", "istanbul", "nyc", "codecov", "branch", "line"]),
+    ("snapshot", &["snap", "golden", "baseline", "regression"]),
+    ("benchmark", &["bench", "perf", "performance", "profile", "measure", "timing"]),
     
-    // Common patterns
-    ("parse", &["parser", "parsing", "deserialize", "decode"]),
-    ("serialize", &["encode", "stringify", "marshal"]),
-    ("validate", &["validation", "validator", "check", "verify", "sanitize"]),
-    ("transform", &["convert", "map", "translate"]),
+    // ═══════════════════════════════════════════════════════════════════════════
+    // COMMON PATTERNS & TRANSFORMATIONS
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("parse", &["parser", "parsing", "deserialize", "decode", "unmarshal", "read", "extract", "tokenize", "lex"]),
+    ("serialize", &["encode", "stringify", "marshal", "dump", "format", "write", "tostring", "tojson"]),
+    ("validate", &["validation", "validator", "check", "verify", "sanitize", "assert", "ensure", "guard", "constraint"]),
+    ("transform", &["convert", "map", "translate", "adapt", "morph", "mutate", "pipe", "compose"]),
+    ("format", &["formatter", "pretty", "beautify", "lint", "style", "indent", "minify"]),
+    ("filter", &["where", "predicate", "criteria", "condition", "match", "select"]),
+    ("sort", &["order", "orderby", "asc", "desc", "compare", "rank", "priority"]),
+    ("group", &["groupby", "aggregate", "bucket", "partition", "cluster"]),
+    ("merge", &["combine", "join", "concat", "union", "intersect", "diff"]),
+    ("split", &["divide", "chunk", "partition", "segment", "slice", "tokenize"]),
+    ("dedupe", &["deduplicate", "unique", "distinct", "dedup"]),
+    ("flatten", &["flat", "unwrap", "spread", "expand"]),
+    ("reduce", &["fold", "aggregate", "accumulate", "collect", "sum"]),
+    ("map", &["transform", "convert", "project", "select", "apply"]),
     
-    // UI
-    ("component", &["widget", "element", "view"]),
-    ("render", &["display", "draw", "paint", "show"]),
-    ("style", &["css", "theme", "design"]),
+    // ═══════════════════════════════════════════════════════════════════════════
+    // UI & FRONTEND
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("component", &["widget", "element", "view", "control", "ui", "module", "block"]),
+    ("render", &["display", "draw", "paint", "show", "present", "output", "mount", "hydrate"]),
+    ("style", &["css", "scss", "sass", "less", "theme", "design", "layout", "appearance", "tailwind", "styled"]),
+    ("state", &["store", "context", "redux", "atom", "signal", "reactive", "observable", "mobx", "zustand", "recoil"]),
+    ("event", &["listener", "handler", "callback", "emit", "dispatch", "trigger", "on", "click", "change", "submit"]),
+    ("hook", &["usestate", "useeffect", "usememo", "usecallback", "useref", "usecontext", "custom"]),
+    ("props", &["properties", "attributes", "params", "args", "input"]),
+    ("dom", &["document", "element", "node", "virtual", "vdom", "shadow"]),
+    ("animation", &["animate", "transition", "motion", "keyframe", "tween", "spring"]),
+    ("responsive", &["mobile", "tablet", "desktop", "breakpoint", "media", "adaptive"]),
+    ("modal", &["dialog", "popup", "overlay", "drawer", "sheet", "toast", "notification"]),
+    ("form", &["input", "field", "submit", "validate", "formik", "hookform", "controlled"]),
+    ("router", &["route", "navigation", "navigate", "link", "history", "path", "param"]),
+    ("ssr", &["server", "hydrate", "hydration", "isomorphic", "universal", "ssg", "isr"]),
     
-    // File operations
-    ("file", &["fs", "path", "directory", "folder", "io"]),
-    ("read", &["load", "open", "parse"]),
-    ("write", &["save", "store", "output"]),
+    // ═══════════════════════════════════════════════════════════════════════════
+    // FILE & IO
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("file", &["fs", "path", "directory", "folder", "io", "stream", "buffer", "blob", "binary"]),
+    ("write", &["save", "store", "output", "dump", "export", "persist", "flush"]),
+    ("watch", &["watcher", "monitor", "observe", "listen", "notify", "fsevents", "inotify", "chokidar"]),
+    ("upload", &["multipart", "formdata", "blob", "file", "stream", "chunk"]),
+    ("download", &["fetch", "stream", "blob", "save", "export"]),
+    ("path", &["filepath", "dirname", "basename", "extension", "resolve", "join", "relative", "absolute"]),
+    ("stream", &["readable", "writable", "duplex", "transform", "pipe", "buffer", "chunk"]),
+    ("compress", &["zip", "gzip", "deflate", "tar", "archive", "decompress", "extract"]),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LOGGING & MONITORING
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("log", &["logger", "logging", "trace", "debug", "info", "warn", "error", "print", "console", "stdout"]),
+    ("metric", &["metrics", "stats", "statistics", "counter", "gauge", "histogram", "measure", "prometheus", "datadog"]),
+    ("trace", &["tracing", "span", "telemetry", "observability", "apm", "opentelemetry", "jaeger", "zipkin"]),
+    ("alert", &["alarm", "notify", "notification", "pager", "oncall", "incident"]),
+    ("dashboard", &["grafana", "kibana", "datadog", "newrelic", "monitor", "visualize"]),
+    ("health", &["healthcheck", "liveness", "readiness", "probe", "ping", "status"]),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PROCESS & LIFECYCLE
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("start", &["init", "begin", "launch", "boot", "startup", "run", "execute", "main", "entry"]),
+    ("stop", &["end", "finish", "terminate", "shutdown", "close", "halt", "kill", "exit", "quit"]),
+    ("restart", &["reload", "refresh", "reset", "reboot", "respawn"]),
+    ("deploy", &["deployment", "release", "publish", "ship", "rollout", "promote"]),
+    ("build", &["compile", "bundle", "package", "assemble", "make", "webpack", "vite", "esbuild"]),
+    ("install", &["setup", "configure", "provision", "bootstrap"]),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // TYPES & DATA STRUCTURES
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("type", &["typedef", "interface", "struct", "class", "enum", "union", "alias", "generic"]),
+    ("string", &["str", "text", "char", "varchar", "utf8", "unicode", "ascii"]),
+    ("number", &["int", "integer", "float", "double", "decimal", "numeric", "bigint"]),
+    ("boolean", &["bool", "flag", "true", "false", "truthy", "falsy"]),
+    ("array", &["list", "vector", "slice", "collection", "sequence", "tuple"]),
+    ("object", &["dict", "dictionary", "map", "hashmap", "record", "struct", "hash"]),
+    ("null", &["nil", "none", "undefined", "void", "empty", "nothing"]),
+    ("optional", &["option", "maybe", "nullable", "undefined"]),
+    ("generic", &["template", "parameterized", "polymorphic", "type"]),
+    ("enum", &["enumeration", "variant", "union", "discriminated", "tagged"]),
+    ("iterator", &["iter", "iterable", "cursor", "generator", "yield", "next"]),
+    ("tree", &["node", "leaf", "branch", "root", "parent", "child", "sibling"]),
+    ("graph", &["node", "edge", "vertex", "directed", "undirected", "weighted"]),
+    ("linked", &["list", "node", "next", "prev", "head", "tail"]),
+    ("stack", &["push", "pop", "lifo", "top"]),
+    ("heap", &["priority", "queue", "min", "max", "heapify"]),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // DESIGN PATTERNS
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("singleton", &["instance", "global", "shared", "static"]),
+    ("factory", &["create", "builder", "construct", "make", "produce"]),
+    ("observer", &["subscribe", "publish", "notify", "listener", "event", "pubsub"]),
+    ("strategy", &["policy", "algorithm", "behavior", "interchangeable"]),
+    ("decorator", &["wrapper", "enhance", "extend", "augment", "mixin"]),
+    ("adapter", &["wrapper", "bridge", "convert", "translate", "facade"]),
+    ("proxy", &["delegate", "surrogate", "placeholder", "lazy"]),
+    ("repository", &["repo", "dao", "dataaccess", "store", "persistence"]),
+    ("service", &["provider", "manager", "handler", "controller", "usecase"]),
+    ("dto", &["dataobject", "transfer", "payload", "model", "entity"]),
+    ("dependency", &["inject", "injection", "di", "ioc", "container", "provider"]),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // VERSION CONTROL & CI/CD
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("git", &["commit", "push", "pull", "merge", "rebase", "branch", "checkout", "clone", "fetch"]),
+    ("commit", &["push", "stage", "add", "message", "hash", "sha"]),
+    ("branch", &["main", "master", "develop", "feature", "release", "hotfix"]),
+    ("merge", &["rebase", "squash", "conflict", "resolve", "pr", "pullrequest"]),
+    ("ci", &["cd", "pipeline", "workflow", "action", "job", "step", "stage"]),
+    ("docker", &["container", "image", "dockerfile", "compose", "kubernetes", "k8s", "pod"]),
+    ("kubernetes", &["k8s", "pod", "deployment", "service", "ingress", "helm", "kubectl"]),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // CLOUD & INFRASTRUCTURE
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("cloud", &["aws", "azure", "gcp", "serverless", "lambda", "function", "paas", "iaas"]),
+    ("aws", &["amazon", "s3", "ec2", "lambda", "dynamodb", "sqs", "sns", "cloudfront"]),
+    ("lambda", &["serverless", "function", "faas", "edge", "worker"]),
+    ("container", &["docker", "kubernetes", "k8s", "pod", "image", "registry"]),
+    ("scale", &["scaling", "autoscale", "horizontal", "vertical", "replica", "shard"]),
+    ("load", &["balancer", "loadbalancer", "nginx", "haproxy", "alb", "elb"]),
+    ("cdn", &["cloudfront", "cloudflare", "edge", "cache", "static", "asset"]),
+    ("dns", &["domain", "record", "cname", "arecord", "nameserver", "resolve"]),
+    ("ssl", &["tls", "https", "certificate", "cert", "letsencrypt", "acme"]),
+    ("vpc", &["network", "subnet", "firewall", "security", "group", "cidr"]),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ALGORITHMS & COMPLEXITY
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("algorithm", &["algo", "logic", "procedure", "method", "technique"]),
+    ("search", &["find", "lookup", "binary", "linear", "bfs", "dfs", "astar"]),
+    ("sort", &["quick", "merge", "heap", "bubble", "insertion", "radix", "bucket"]),
+    ("hash", &["hashing", "hashmap", "hashtable", "digest", "md5", "sha", "checksum"]),
+    ("recursive", &["recursion", "recur", "base", "case", "tail", "memoize"]),
+    ("dynamic", &["dp", "programming", "memoization", "tabulation", "subproblem"]),
+    ("greedy", &["optimal", "local", "choice", "heuristic"]),
+    ("complexity", &["bigO", "time", "space", "constant", "linear", "logarithmic", "quadratic"]),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // DOCUMENTATION & COMMENTS
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("doc", &["docs", "documentation", "readme", "comment", "jsdoc", "tsdoc", "rustdoc", "javadoc"]),
+    ("comment", &["note", "todo", "fixme", "hack", "xxx", "deprecated", "warning"]),
+    ("readme", &["documentation", "guide", "tutorial", "example", "usage"]),
+    ("changelog", &["history", "release", "notes", "version", "breaking"]),
+    ("license", &["mit", "apache", "gpl", "bsd", "copyright", "open", "source"]),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LANGUAGE-SPECIFIC
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Rust
+    ("rust", &["cargo", "crate", "mod", "impl", "trait", "derive", "macro", "unsafe", "lifetime", "borrow"]),
+    ("trait", &["interface", "protocol", "typeclass", "impl", "derive", "bound"]),
+    ("lifetime", &["borrow", "reference", "ownership", "move", "copy", "clone"]),
+    ("macro", &["derive", "proc", "declarative", "hygiene", "expand"]),
+    
+    // JavaScript/TypeScript
+    ("javascript", &["js", "ecmascript", "es6", "es2015", "node", "deno", "bun"]),
+    ("typescript", &["ts", "typed", "interface", "type", "generic", "infer"]),
+    ("node", &["nodejs", "npm", "yarn", "pnpm", "require", "module", "commonjs", "esm"]),
+    ("react", &["jsx", "tsx", "component", "hook", "state", "props", "context", "redux"]),
+    ("vue", &["vuejs", "composition", "options", "reactive", "ref", "computed", "pinia"]),
+    ("angular", &["ng", "component", "service", "module", "directive", "pipe", "rxjs"]),
+    ("svelte", &["sveltekit", "reactive", "store", "action", "transition"]),
+    ("next", &["nextjs", "ssr", "ssg", "isr", "app", "router", "middleware"]),
+    
+    // Python
+    ("python", &["py", "pip", "venv", "conda", "django", "flask", "fastapi"]),
+    ("django", &["model", "view", "template", "orm", "admin", "middleware"]),
+    ("flask", &["route", "blueprint", "jinja", "werkzeug"]),
+    ("fastapi", &["pydantic", "async", "openapi", "swagger", "uvicorn"]),
+    
+    // Go
+    ("golang", &["go", "goroutine", "channel", "defer", "interface", "struct", "package"]),
+    ("goroutine", &["concurrent", "channel", "select", "waitgroup", "mutex"]),
+    
+    // Java/Kotlin
+    ("java", &["jvm", "spring", "maven", "gradle", "hibernate", "jpa"]),
+    ("spring", &["boot", "mvc", "security", "data", "cloud", "bean", "autowired"]),
+    ("kotlin", &["coroutine", "suspend", "flow", "sealed", "data", "companion"]),
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // COMMON ABBREVIATIONS
+    // ═══════════════════════════════════════════════════════════════════════════
+    ("id", &["identifier", "uuid", "guid", "key", "pk", "primary"]),
+    ("uuid", &["guid", "id", "identifier", "unique", "random"]),
+    ("url", &["uri", "link", "href", "path", "endpoint"]),
+    ("json", &["object", "parse", "stringify", "serialize", "deserialize"]),
+    ("xml", &["parse", "dom", "sax", "xpath", "xslt"]),
+    ("csv", &["parse", "delimiter", "column", "row", "spreadsheet"]),
+    ("regex", &["regexp", "pattern", "match", "replace", "capture", "group"]),
+    ("env", &["environment", "variable", "config", "dotenv", "secret"]),
+    ("cli", &["command", "terminal", "shell", "arg", "flag", "option"]),
+    ("gui", &["ui", "interface", "window", "dialog", "widget"]),
+    ("sdk", &["library", "client", "api", "wrapper", "package"]),
+    ("pkg", &["package", "module", "library", "dependency", "crate"]),
+    ("src", &["source", "code", "lib", "main", "app"]),
+    ("tmp", &["temp", "temporary", "cache", "scratch"]),
+    ("util", &["utility", "helper", "common", "shared", "lib"]),
+    ("impl", &["implementation", "implement", "concrete", "realize"]),
+    ("spec", &["specification", "test", "describe", "it", "should"]),
+    ("init", &["initialize", "setup", "bootstrap", "start", "create"]),
+    ("ctx", &["context", "state", "scope", "environment"]),
+    ("req", &["request", "http", "input", "params"]),
+    ("res", &["response", "result", "output", "reply"]),
+    ("cb", &["callback", "handler", "listener", "function"]),
+    ("fn", &["function", "func", "method", "procedure", "lambda"]),
+    ("arg", &["argument", "param", "parameter", "input"]),
+    ("val", &["value", "data", "result", "output"]),
+    ("var", &["variable", "let", "const", "mut", "mutable"]),
+    ("ref", &["reference", "pointer", "borrow", "alias"]),
+    ("ptr", &["pointer", "reference", "address", "memory"]),
+    ("buf", &["buffer", "array", "bytes", "data"]),
+    ("len", &["length", "size", "count", "capacity"]),
+    ("max", &["maximum", "limit", "upper", "bound", "cap"]),
+    ("min", &["minimum", "lower", "bound", "floor"]),
+    ("avg", &["average", "mean", "median", "aggregate"]),
+    ("cnt", &["count", "total", "sum", "number"]),
+    ("idx", &["index", "position", "offset", "cursor"]),
+    ("prev", &["previous", "before", "prior", "last"]),
+    ("curr", &["current", "now", "present", "active"]),
+    ("temp", &["temporary", "tmp", "scratch", "interim"]),
 ];
 
 /// Intent patterns for local detection

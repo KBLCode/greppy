@@ -1,7 +1,10 @@
 //! Query enhancement using Claude Haiku
 //!
 //! Analyzes natural language queries and expands them for better BM25 matching.
-//! Includes caching to avoid repeated API calls for similar queries.
+//! Uses a tiered approach for speed:
+//! 1. Check LLM cache (instant)
+//! 2. Try local expansion with synonyms (instant)
+//! 3. Fall back to LLM API (slow, but cached forever)
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -9,6 +12,7 @@ use tracing::{debug, info, warn};
 
 use super::cache::LlmCache;
 use super::client::ClaudeClient;
+use super::local::LocalExpander;
 
 /// System prompt for query enhancement
 pub const SYSTEM_PROMPT: &str = r#"Expand code search query into related terms. JSON only:
@@ -50,21 +54,49 @@ pub struct QueryFilters {
     pub file_patterns: Option<Vec<String>>,
 }
 
-/// Enhance a search query using Claude Haiku
+/// Enhance a search query using local expansion first, then Claude Haiku as fallback
 ///
 /// Returns the enhanced query or falls back to the original on error.
-/// Uses caching to avoid repeated API calls for similar queries.
+/// Uses a tiered approach for speed:
+/// 1. Check LLM cache (instant)
+/// 2. Try local expansion with synonyms (instant)
+/// 3. Fall back to LLM API (slow, but cached forever)
 pub async fn enhance_query(query: &str) -> Result<QueryEnhancement> {
-    // Check cache first
+    // 1. Check cache first (instant)
     let cache = LlmCache::load();
     if let Some(cached) = cache.get(query) {
         info!("Using cached query enhancement");
         return Ok(cached);
     }
 
+    // 2. Try local expansion first (instant, no API call)
+    let expander = LocalExpander::new();
+    if expander.can_expand_locally(query) {
+        info!("Using local expansion for query: {}", query);
+        let local = expander.expand(query);
+        let enhancement = QueryEnhancement {
+            intent: local.intent,
+            entity_type: None,
+            expanded_query: local.expanded_query,
+            filters: QueryFilters {
+                exclude_tests: true,
+                ..Default::default()
+            },
+        };
+        // Cache the local expansion result too
+        cache.set(query, enhancement.clone());
+        debug!(
+            "Local expansion: intent={}, expanded='{}'",
+            enhancement.intent,
+            enhancement.expanded_query
+        );
+        return Ok(enhancement);
+    }
+
+    // 3. Fall back to LLM API for complex/ambiguous queries
     let client = ClaudeClient::new();
     
-    info!("Enhancing query with LLM: {}", query);
+    info!("Enhancing query with LLM (local expansion insufficient): {}", query);
     
     let response = client
         .send_message(SYSTEM_PROMPT, query)
@@ -79,7 +111,7 @@ pub async fn enhance_query(query: &str) -> Result<QueryEnhancement> {
         .with_context(|| format!("Failed to parse LLM response as JSON: {}", json_str))?;
     
     debug!(
-        "Query enhanced: intent={}, expanded='{}'",
+        "LLM enhanced: intent={}, expanded='{}'",
         enhancement.intent,
         enhancement.expanded_query
     );
