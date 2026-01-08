@@ -211,6 +211,23 @@ main() {
     chmod +x "${INSTALL_DIR}/${binary_name}"
     info "Installed to: ${BOLD}${INSTALL_DIR}/${binary_name}${NC}"
 
+    # Install man page
+    step "Installing man page..."
+    local man_dir="$HOME/.local/share/man/man1"
+    mkdir -p "$man_dir"
+    
+    local man_url="${GITHUB_URL}/releases/download/${VERSION}/greppy.1"
+    local man_tmp
+    man_tmp=$(mktemp)
+    
+    if curl -fsSL "$man_url" -o "$man_tmp" 2>/dev/null; then
+        mv "$man_tmp" "${man_dir}/greppy.1"
+        info "Man page installed to: ${BOLD}${man_dir}/greppy.1${NC}"
+    else
+        warn "Failed to download man page (might not verify available for this version)"
+        rm -f "$man_tmp"
+    fi
+
     # Check if in PATH
     if ! command -v greppy &> /dev/null && [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
         echo ""

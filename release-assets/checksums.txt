@@ -1,1 +1,2 @@
-a4660f26d2da7e17929b22383ff6287cba6ca83675ba88fe82103e69742c3e8c  greppy-darwin-aarch64
+4c0bbaa5df5f6ce441670174a5df2706c4c7bffb9b65a2faa2126844f24986df  release-assets/greppy-darwin-aarch64
+2fc797f1f4265352730e2a75c886af190dbd6146d33c87a3dc79165f7cc45c79  release-assets/greppy.1
