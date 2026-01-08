@@ -9,34 +9,36 @@ INSTALL_DIR="${GREPPY_INSTALL_DIR:-$HOME/.local/bin}"
 REPO="KBLCode/greppy"
 GITHUB_URL="https://github.com/${REPO}"
 
-# Colors
+# Colors - Light blue theme
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
+BRIGHT_CYAN='\033[1;36m'
 MAGENTA='\033[0;35m'
 BOLD='\033[1m'
 DIM='\033[2m'
 NC='\033[0m'
 
-info() { echo -e "${GREEN}  ✓${NC} $1"; }
+info() { echo -e "${BRIGHT_CYAN}  ✓${NC} $1"; }
 warn() { echo -e "${YELLOW}  !${NC} $1"; }
 error() { echo -e "${RED}  ✗${NC} $1"; exit 1; }
-step() { echo -e "${CYAN}  →${NC} $1"; }
+step() { echo -e "${BRIGHT_CYAN}  →${NC} $1"; }
 
 # Banner
 show_banner() {
     echo ""
-    echo -e "${MAGENTA}"
-    echo " ██████╗██████╗█████████████╗██████╗██╗   ██╗"
-    echo "██╔════╝██╔══████╔════██╔══████╔══██╚██╗ ██╔╝"
-    echo "██║  █████████╔█████╗ ██████╔██████╔╝╚████╔╝ "
-    echo "██║   ████╔══████╔══╝ ██╔═══╝██╔═══╝  ╚██╔╝  "
-    echo "╚██████╔██║  ███████████║    ██║       ██║   "
-    echo " ╚═════╝╚═╝  ╚═╚══════╚═╝    ╚═╝       ╚═╝   "
-    echo -e "${NC}"
-    echo -e "${DIM}  Sub-millisecond code search for AI tools${NC}"
+    echo -e "${BRIGHT_CYAN}┌──────────────────────────────────────────────────┐
+│ ██████╗ ██████╗ ███████╗██████╗ ██████╗ ██╗   ██╗│
+│██╔════╝ ██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝│
+│██║  ███╗██████╔╝█████╗  ██████╔╝██████╔╝ ╚████╔╝ │
+│██║   ██║██╔══██╗██╔══╝  ██╔═══╝ ██╔═══╝   ╚██╔╝  │
+│╚██████╔╝██║  ██║███████╗██║     ██║        ██║   │
+│ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝        ╚═╝   │
+└──────────────────────────────────────────────────┘${NC}"
+    echo ""
+    echo -e "  ${DIM}Sub-millisecond code search for AI tools${NC}"
     echo ""
     echo -e "  ${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
@@ -117,40 +119,40 @@ verify_checksum() {
 # Show quick start wizard
 show_wizard() {
     echo ""
-    echo -e "  ${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "  ${BRIGHT_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${BOLD}${GREEN}Installation complete!${NC}"
+    echo -e "  ${BOLD}${BRIGHT_CYAN}✓ Installation complete!${NC}"
     echo ""
-    echo -e "  ${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "  ${BRIGHT_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     echo -e "  ${BOLD}Quick Start${NC}"
     echo ""
-    echo -e "  ${CYAN}1.${NC} Start the daemon ${DIM}(runs in background)${NC}"
+    echo -e "  ${BRIGHT_CYAN}1.${NC} Start the daemon ${DIM}(runs in background)${NC}"
     echo -e "     ${BOLD}$ greppy start${NC}"
     echo ""
-    echo -e "  ${CYAN}2.${NC} Index your project ${DIM}(auto-watches for changes)${NC}"
+    echo -e "  ${BRIGHT_CYAN}2.${NC} Index your project ${DIM}(auto-watches for changes)${NC}"
     echo -e "     ${BOLD}$ cd /your/project && greppy index${NC}"
     echo ""
-    echo -e "  ${CYAN}3.${NC} Search your code ${DIM}(sub-millisecond results)${NC}"
+    echo -e "  ${BRIGHT_CYAN}3.${NC} Search your code ${DIM}(sub-millisecond results)${NC}"
     echo -e "     ${BOLD}$ greppy search \"your query\"${NC}"
     echo ""
-    echo -e "  ${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "  ${BRIGHT_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     echo -e "  ${BOLD}Commands${NC}"
     echo ""
-    echo -e "  ${DIM}greppy start${NC}            Start background daemon"
-    echo -e "  ${DIM}greppy stop${NC}             Stop the daemon"
-    echo -e "  ${DIM}greppy status${NC}           Show daemon status"
-    echo -e "  ${DIM}greppy index${NC}            Index current project"
-    echo -e "  ${DIM}greppy search <q>${NC}       Search indexed code"
-    echo -e "  ${DIM}greppy search <q> -l 5${NC}  Limit to 5 results"
-    echo -e "  ${DIM}greppy search <q> --json${NC} JSON output for AI tools"
-    echo -e "  ${DIM}greppy list${NC}             List indexed projects"
-    echo -e "  ${DIM}greppy forget${NC}           Remove project from index"
+    echo -e "  ${BRIGHT_CYAN}greppy start${NC}            Start background daemon"
+    echo -e "  ${BRIGHT_CYAN}greppy stop${NC}             Stop the daemon"
+    echo -e "  ${BRIGHT_CYAN}greppy status${NC}           Show daemon status"
+    echo -e "  ${BRIGHT_CYAN}greppy index${NC}            Index current project"
+    echo -e "  ${BRIGHT_CYAN}greppy search <q>${NC}       Search indexed code"
+    echo -e "  ${BRIGHT_CYAN}greppy search <q> -l 5${NC}  Limit to 5 results"
+    echo -e "  ${BRIGHT_CYAN}greppy search <q> --json${NC} JSON output for AI tools"
+    echo -e "  ${BRIGHT_CYAN}greppy list${NC}             List indexed projects"
+    echo -e "  ${BRIGHT_CYAN}greppy forget${NC}           Remove project from index"
     echo ""
-    echo -e "  ${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "  ${BRIGHT_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${DIM}Docs:${NC} ${BLUE}${GITHUB_URL}${NC}"
+    echo -e "  ${DIM}Docs:${NC} ${BRIGHT_CYAN}${GITHUB_URL}${NC}"
     echo ""
 }
 

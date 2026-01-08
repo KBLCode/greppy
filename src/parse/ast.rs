@@ -659,7 +659,8 @@ impl AstParser {
         // Look for expression_statement with string as first child in body
         for child in node.children(&mut node.walk()) {
             if child.kind() == "block" {
-                for block_child in child.children(&mut child.walk()) {
+                // Only check first statement in block for docstring
+                if let Some(block_child) = child.children(&mut child.walk()).next() {
                     if block_child.kind() == "expression_statement" {
                         if let Some(string_node) = block_child.child(0) {
                             if string_node.kind() == "string" {
@@ -668,7 +669,6 @@ impl AstParser {
                             }
                         }
                     }
-                    break; // Only check first statement
                 }
             }
         }
