@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/assets/logo.svg" alt="Greppy Logo" width="400">
-</p>
-
 <h1 align="center">Greppy</h1>
 
 <p align="center">
