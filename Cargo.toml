@@ -60,6 +60,7 @@ futures = "0.3"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 parking_lot = "0.12"
 libc = "0.2"
+memmap2 = "0.9" # Memory-mapped file I/O for fast cache loading
 
 # HTTP client for OAuth and LLM API (with HTTP/2 for speed)
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "http2"], default-features = false }
