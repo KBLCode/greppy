@@ -44,7 +44,7 @@ impl IndexSearcher {
         let index = Index::open_in_dir(&index_dir)?;
         let reader = index
             .reader_builder()
-            .reload_policy(ReloadPolicy::Manual)
+            .reload_policy(ReloadPolicy::OnCommitWithDelay) // Auto-reload on commit (was Manual)
             .try_into()
             .map_err(|e| GreppyError::Index(format!("Failed to create reader: {}", e)))?;
 
