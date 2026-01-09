@@ -2,11 +2,12 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use greppy::cache::QueryCache;
 use greppy::search::{SearchResponse, SearchResult};
 use std::sync::Arc;
+use string_cache::DefaultAtom as Atom;
 
 fn create_mock_results(count: usize) -> Vec<SearchResult> {
     (0..count)
         .map(|i| SearchResult {
-            path: Arc::from(format!("src/file{}.rs", i).as_str()),
+            path: Atom::from(format!("src/file{}.rs", i)),
             content: Arc::from(format!("fn test_function_{}() {{}}", i).as_str()),
             symbol_name: Some(Arc::from(format!("test_function_{}", i).as_str())),
             symbol_type: Some(Arc::from("function")),
