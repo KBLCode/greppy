@@ -30,7 +30,7 @@ impl OAuthTokens {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        
+
         // Add 5 minute buffer
         self.expires < now + (5 * 60 * 1000)
     }
@@ -64,18 +64,16 @@ fn get_auth_file_path() -> PathBuf {
 /// Load OAuth tokens from storage
 pub fn load_tokens() -> Result<Option<OAuthTokens>> {
     let path = get_auth_file_path();
-    
+
     if !path.exists() {
         debug!("Auth file does not exist: {:?}", path);
         return Ok(None);
     }
-    
-    let content = fs::read_to_string(&path)
-        .context("Failed to read auth file")?;
-    
-    let data: AuthData = serde_json::from_str(&content)
-        .context("Failed to parse auth file")?;
-    
+
+    let content = fs::read_to_string(&path).context("Failed to read auth file")?;
+
+    let data: AuthData = serde_json::from_str(&content).context("Failed to parse auth file")?;
+
     match &data.anthropic {
         Some(tokens) if tokens.token_type == "oauth" => {
             debug!("Loaded OAuth tokens from {:?}", path);
@@ -96,11 +94,10 @@ pub fn load_tokens() -> Result<Option<OAuthTokens>> {
 pub fn store_tokens(tokens: &OAuthTokens) -> Result<()> {
     let path = get_auth_file_path();
     let dir = path.parent().unwrap();
-    
+
     // Ensure directory exists
-    fs::create_dir_all(dir)
-        .context("Failed to create config directory")?;
-    
+    fs::create_dir_all(dir).context("Failed to create config directory")?;
+
     // Load existing data or create new
     let mut data = if path.exists() {
         let content = fs::read_to_string(&path).unwrap_or_default();
@@ -108,20 +105,19 @@ pub fn store_tokens(tokens: &OAuthTokens) -> Result<()> {
     } else {
         AuthData::default()
     };
-    
+
     // Update tokens
     data.anthropic = Some(tokens.clone());
-    
+
     // Serialize
-    let content = serde_json::to_string_pretty(&data)
-        .context("Failed to serialize auth data")?;
-    
+    let content = serde_json::to_string_pretty(&data).context("Failed to serialize auth data")?;
+
     // Write with secure permissions
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt;
         use std::io::Write;
-        
+        use std::os::unix::fs::OpenOptionsExt;
+
         let mut file = fs::OpenOptions::new()
             .write(true)
             .create(true)
@@ -129,17 +125,16 @@ pub fn store_tokens(tokens: &OAuthTokens) -> Result<()> {
             .mode(0o600)
             .open(&path)
             .context("Failed to create auth file")?;
-        
+
         file.write_all(content.as_bytes())
             .context("Failed to write auth file")?;
     }
-    
+
     #[cfg(not(unix))]
     {
-        fs::write(&path, content)
-            .context("Failed to write auth file")?;
+        fs::write(&path, content).context("Failed to write auth file")?;
     }
-    
+
     debug!("Stored OAuth tokens to {:?}", path);
     Ok(())
 }
@@ -147,27 +142,26 @@ pub fn store_tokens(tokens: &OAuthTokens) -> Result<()> {
 /// Clear stored OAuth tokens
 pub fn clear_tokens() -> Result<()> {
     let path = get_auth_file_path();
-    
+
     if !path.exists() {
         return Ok(());
     }
-    
+
     let content = fs::read_to_string(&path).unwrap_or_default();
     let mut data: AuthData = serde_json::from_str(&content).unwrap_or_default();
-    
+
     data.anthropic = None;
-    
-    let content = serde_json::to_string_pretty(&data)
-        .context("Failed to serialize auth data")?;
-    
-    fs::write(&path, content)
-        .context("Failed to write auth file")?;
-    
+
+    let content = serde_json::to_string_pretty(&data).context("Failed to serialize auth data")?;
+
+    fs::write(&path, content).context("Failed to write auth file")?;
+
     debug!("Cleared OAuth tokens from {:?}", path);
     Ok(())
 }
 
 /// Get the path to the auth file (for display purposes)
+#[allow(dead_code)]
 pub fn get_auth_path() -> PathBuf {
     get_auth_file_path()
 }
@@ -175,7 +169,7 @@ pub fn get_auth_path() -> PathBuf {
 // Add dirs crate for home_dir
 mod dirs {
     use std::path::PathBuf;
-    
+
     pub fn home_dir() -> Option<PathBuf> {
         std::env::var_os("HOME").map(PathBuf::from)
     }
@@ -184,14 +178,14 @@ mod dirs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_token_expiry() {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        
+
         // Token that expires in 10 minutes - not expired
         let valid_token = OAuthTokens {
             token_type: "oauth".to_string(),
@@ -200,7 +194,7 @@ mod tests {
             expires: now + (10 * 60 * 1000),
         };
         assert!(!valid_token.is_expired());
-        
+
         // Token that expires in 2 minutes - expired (within 5 min buffer)
         let expiring_token = OAuthTokens {
             token_type: "oauth".to_string(),
@@ -209,7 +203,7 @@ mod tests {
             expires: now + (2 * 60 * 1000),
         };
         assert!(expiring_token.is_expired());
-        
+
         // Token that already expired
         let expired_token = OAuthTokens {
             token_type: "oauth".to_string(),

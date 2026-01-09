@@ -225,14 +225,34 @@ impl IndexSearcher {
 
         let mut results = results?;
 
-        // Use unstable sort (faster, we don't care about order of equal scores)
-        results.sort_unstable_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        results.truncate(limit);
+        // Use partial sort for top-K selection (faster than full sort for large result sets)
+        // Only sort the top `limit` results, leave the rest unsorted
+        if results.len() > limit {
+            // Use select_nth_unstable to partition around the Kth element
+            // This is O(n) average case vs O(n log n) for full sort
+            results.select_nth_unstable_by(limit, |a, b| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
 
-        Ok(results)
+            // Now sort only the top `limit` elements
+            results[..limit].sort_unstable_by(|a, b| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            results.truncate(limit);
+            Ok(results)
+        } else {
+            // If results <= limit, just sort normally
+            results.sort_unstable_by(|a, b| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            Ok(results)
+        }
     }
 }
