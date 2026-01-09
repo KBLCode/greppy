@@ -12,8 +12,15 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use tracing_subscriber::EnvFilter;
 
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
 #[tokio::main]
 async fn main() -> ExitCode {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -38,12 +45,18 @@ async fn main() -> ExitCode {
         Some(Commands::Start) => cmd_start().await,
         Some(Commands::Stop) => cmd_stop().await,
         Some(Commands::Status) => cmd_status().await,
-        Some(Commands::Search { query, limit, project, json, smart }) => {
-            cmd_search(query, limit, project, json, smart).await
-        }
-        Some(Commands::Index { project, force, watch }) => {
-            cmd_index(project, force, watch).await
-        }
+        Some(Commands::Search {
+            query,
+            limit,
+            project,
+            json,
+            smart,
+        }) => cmd_search(query, limit, project, json, smart).await,
+        Some(Commands::Index {
+            project,
+            force,
+            watch,
+        }) => cmd_index(project, force, watch).await,
         Some(Commands::List) => cmd_list().await,
         Some(Commands::Forget { path }) => cmd_forget(path).await,
         Some(Commands::Ping) => cmd_ping().await,
@@ -89,18 +102,18 @@ async fn cmd_start() -> Result<()> {
 
 async fn cmd_stop() -> Result<()> {
     if !is_daemon_running() {
-        println!("Daemon is not running");
+        println!("{}", "Daemon is not running".yellow());
         return Ok(());
     }
 
     // Try graceful shutdown first
-    if let Ok(mut client) = DaemonClient::connect() {
-        let _ = client.send(Request::shutdown());
+    if let Ok(mut client) = DaemonClient::connect().await {
+        let _ = client.send(Request::shutdown()).await;
     }
 
     // Then force stop if needed
     stop_daemon()?;
-    println!("Daemon stopped");
+    println!("{}", "✓ Daemon stopped successfully".green());
     Ok(())
 }
 
@@ -110,13 +123,19 @@ async fn cmd_status() -> Result<()> {
         return Ok(());
     }
 
-    let mut client = DaemonClient::connect()?;
-    let response = client.send(Request::status())?;
+    let mut client = DaemonClient::connect().await?;
+    let response = client.send(Request::status()).await?;
     println!("{}", format_human(&response));
     Ok(())
 }
 
-async fn cmd_search(query: String, limit: usize, project: Option<PathBuf>, json: bool, smart: bool) -> Result<()> {
+async fn cmd_search(
+    query: String,
+    limit: usize,
+    project: Option<PathBuf>,
+    json: bool,
+    smart: bool,
+) -> Result<()> {
     // Ensure daemon is running
     if !is_daemon_running() {
         eprintln!("Daemon is not running. Start it with: greppy start");
@@ -133,43 +152,57 @@ async fn cmd_search(query: String, limit: usize, project: Option<PathBuf>, json:
     let response = if smart {
         // Check if authenticated
         if !auth::is_authenticated().await {
-            eprintln!("{}", "Warning: Not authenticated. Using regular search.".yellow());
+            eprintln!(
+                "{}",
+                "Warning: Not authenticated. Using regular search.".yellow()
+            );
             eprintln!("Run 'greppy auth login' to enable smart search.");
-            let mut client = DaemonClient::connect()?;
-            client.send(Request::search(query, project_path, limit))?
+            let mut client = DaemonClient::connect().await?;
+            client
+                .send(Request::search(query, project_path, limit))
+                .await?
         } else {
             // SPECULATIVE EXECUTION: Start both searches in parallel
             // 1. Immediate search with original query (fast)
             // 2. LLM enhancement (may be cached = instant, or API = slower)
             eprintln!("{}", "Enhancing query with AI...".cyan());
-            
+
             let query_clone = query.clone();
             let project_clone = project_path.clone();
-            
+
             // Start LLM enhancement
             let enhancement = greppy::llm::try_enhance_query(&query).await;
-            
+
             if enhancement.intent != "general" {
                 eprintln!(
                     "{}",
-                    format!("Intent: {} | Expanded: {}", enhancement.intent, &enhancement.expanded_query).dimmed()
+                    format!(
+                        "Intent: {} | Expanded: {}",
+                        enhancement.intent, &enhancement.expanded_query
+                    )
+                    .dimmed()
                 );
             }
-            
+
             // If LLM returned same query, just search once
-            let search_query = if enhancement.expanded_query == query_clone 
-                || enhancement.expanded_query.is_empty() {
+            let search_query = if enhancement.expanded_query == query_clone
+                || enhancement.expanded_query.is_empty()
+            {
                 query_clone
             } else {
                 enhancement.expanded_query
             };
-            
-            let mut client = DaemonClient::connect()?;
-            client.send(Request::search(search_query, project_clone, limit))?
+
+            let mut client = DaemonClient::connect().await?;
+            client
+                .send(Request::search(search_query, project_clone, limit))
+                .await?
         }
     } else {
-        let mut client = DaemonClient::connect()?;
-        client.send(Request::search(query, project_path, limit))?
+        let mut client = DaemonClient::connect().await?;
+        client
+            .send(Request::search(query, project_path, limit))
+            .await?
     };
 
     if json {
@@ -196,9 +229,9 @@ async fn cmd_index(project: Option<PathBuf>, force: bool, _watch: bool) -> Resul
 
     println!("Indexing {}...", project_path.display());
 
-    let mut client = DaemonClient::connect()?;
+    let mut client = DaemonClient::connect().await?;
     let request = Request::index(project_path, force);
-    let response = client.send(request)?;
+    let response = client.send(request).await?;
 
     println!("{}", format_human(&response));
 
@@ -216,8 +249,8 @@ async fn cmd_list() -> Result<()> {
         return Err(greppy::GreppyError::DaemonNotRunning);
     }
 
-    let mut client = DaemonClient::connect()?;
-    let response = client.send(Request::list_projects())?;
+    let mut client = DaemonClient::connect().await?;
+    let response = client.send(Request::list_projects()).await?;
     println!("{}", format_human(&response));
     Ok(())
 }
@@ -233,8 +266,8 @@ async fn cmd_forget(path: Option<PathBuf>) -> Result<()> {
         None => detect_project_root(&std::env::current_dir()?)?,
     };
 
-    let mut client = DaemonClient::connect()?;
-    let response = client.send(Request::forget_project(project_path))?;
+    let mut client = DaemonClient::connect().await?;
+    let response = client.send(Request::forget_project(project_path)).await?;
     println!("{}", format_human(&response));
     Ok(())
 }
@@ -245,8 +278,8 @@ async fn cmd_ping() -> Result<()> {
         return Ok(());
     }
 
-    let mut client = DaemonClient::connect()?;
-    let response = client.send(Request::ping())?;
+    let mut client = DaemonClient::connect().await?;
+    let response = client.send(Request::ping()).await?;
     println!("{}", format_human(&response));
     Ok(())
 }
@@ -269,32 +302,32 @@ async fn cmd_auth_login() -> Result<()> {
 
     // Start OAuth flow
     let auth_request = auth::authorize();
-    
+
     println!("{}", "Opening browser for authentication...".cyan());
     println!();
     println!("If the browser doesn't open, visit this URL:");
     println!("{}", auth_request.url.bright_blue());
     println!();
-    
+
     // Try to open browser
     if let Err(_) = open_browser(&auth_request.url) {
         println!("{}", "Could not open browser automatically.".yellow());
     }
-    
+
     println!("After authorizing, you'll see a code. Paste it here:");
     print!("> ");
     use std::io::{self, Write};
     io::stdout().flush().unwrap();
-    
+
     let mut code = String::new();
     io::stdin().read_line(&mut code).unwrap();
     let code = code.trim();
-    
+
     if code.is_empty() {
         println!("{}", "No code provided. Login cancelled.".red());
         return Ok(());
     }
-    
+
     // Exchange code for tokens
     println!("Exchanging code for tokens...");
     match auth::exchange(code, &auth_request.verifier).await {
@@ -307,7 +340,7 @@ async fn cmd_auth_login() -> Result<()> {
             println!("{}", format!("Authentication failed: {}", e).red());
         }
     }
-    
+
     Ok(())
 }
 
@@ -340,7 +373,9 @@ fn open_browser(url: &str) -> std::io::Result<()> {
     }
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd").args(["/C", "start", url]).spawn()?;
+        std::process::Command::new("cmd")
+            .args(["/C", "start", url])
+            .spawn()?;
     }
     Ok(())
 }

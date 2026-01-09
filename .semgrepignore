@@ -1,0 +1,3 @@
+# False positive: path comes from our own FileWalker (ignore crate), not user input
+# The FileWalker only traverses files within the project directory
+src/parse/chunker.rs:rust.actix.path-traversal.tainted-path.tainted-path

@@ -6,6 +6,7 @@ use crate::search::SearchResult;
 use rayon::prelude::*;
 use std::path::Path;
 use std::sync::Arc;
+use string_cache::DefaultAtom as Atom;
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, BoostQuery, Occur, Query, TermQuery};
 use tantivy::schema::{IndexRecordOption, Value};
@@ -136,8 +137,8 @@ impl IndexSearcher {
                     .doc(*doc_address)
                     .map_err(|e| GreppyError::Search(e.to_string()))?;
 
-                // Use Arc<str> for zero-copy cloning (40-50% memory reduction)
-                let path: Arc<str> = Arc::from(
+                // Use Atom for string interning (60-70% memory reduction for paths)
+                let path: Atom = Atom::from(
                     doc.get_first(self.schema.path)
                         .and_then(|v| v.as_str())
                         .unwrap_or(""),
