@@ -1,0 +1,157 @@
+name: Performance Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run weekly to track performance over time
+    - cron: '0 0 * * 0'
+
+jobs:
+  benchmark:
+    name: Run Benchmarks
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Run benchmarks
+        run: cargo bench --bench search_bench --bench cache_bench
+      
+      - name: Store benchmark results
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: 'cargo'
+          output-file-path: target/criterion/*/new/estimates.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          # Show alert with commit comment on detecting possible performance regression
+          alert-threshold: '150%'
+          comment-on-alert: true
+          fail-on-alert: false
+      
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            target/criterion/
+            flamegraph.svg
+          retention-days: 30
+
+  memory-profile:
+    name: Memory Profiling
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install valgrind
+        run: sudo apt-get update && sudo apt-get install -y valgrind
+      
+      - name: Build release
+        run: cargo build --release
+      
+      - name: Run memory check
+        run: |
+          valgrind --tool=massif \
+            --massif-out-file=massif.out \
+            ./target/release/greppy search "test" || true
+      
+      - name: Generate memory report
+        run: |
+          ms_print massif.out > memory-report.txt
+          cat memory-report.txt
+      
+      - name: Upload memory profile
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-profile
+          path: |
+            massif.out
+            memory-report.txt
+          retention-days: 30
+
+  load-test:
+    name: Load Testing
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install hyperfine
+        run: cargo install hyperfine
+      
+      - name: Build release
+        run: cargo build --release
+      
+      - name: Start daemon
+        run: |
+          ./target/release/greppy start
+          sleep 2
+      
+      - name: Index test project
+        run: ./target/release/greppy index
+      
+      - name: Run load tests
+        run: |
+          echo "Simple query load test:"
+          hyperfine --warmup 10 --runs 1000 \
+            --export-json load-test-simple.json \
+            './target/release/greppy search "test"'
+          
+          echo "Complex query load test:"
+          hyperfine --warmup 10 --runs 500 \
+            --export-json load-test-complex.json \
+            './target/release/greppy search "user database authenticate"'
+      
+      - name: Upload load test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-results
+          path: |
+            load-test-*.json
+          retention-days: 30
+      
+      - name: Check performance thresholds
+        run: |
+          # Extract p99 latency from hyperfine results
+          P99=$(jq '.results[0].times | sort | .[length * 99 / 100 | floor]' load-test-simple.json)
+          echo "P99 latency: ${P99}s"
+          
+          # Fail if p99 > 10ms (0.01s)
+          if (( $(echo "$P99 > 0.01" | bc -l) )); then
+            echo "❌ Performance regression: P99 latency ${P99}s exceeds 10ms threshold"
+            exit 1
+          else
+            echo "✅ Performance within acceptable range"
+          fi
