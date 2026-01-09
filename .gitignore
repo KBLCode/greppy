@@ -46,3 +46,8 @@ logs/
 *.tmp
 *.temp
 .cache/
+
+# Execution plans (session-specific, not for version control)
+EXECUTION_PLAN.md
+**/EXECUTION_PLAN*.md
+OPTIMIZATION_STATUS.md

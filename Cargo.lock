@@ -765,6 +765,7 @@ dependencies = [
  "ignore",
  "libc",
  "lru",
+ "memmap2",
  "notify",
  "once_cell",
  "parking_lot",
