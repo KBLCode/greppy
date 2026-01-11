@@ -61,14 +61,22 @@ impl IndexSchema {
         let file_hash = builder.add_text_field("file_hash", STRING | STORED);
 
         // Embedding vector (768 dimensions for BGE-Base-EN)
+        // We use a bytes field for now as Tantivy 0.22's vector support is evolving
+        // and we want to ensure compatibility.
+        // Ideally, this should be `add_vector_field` if we want ANN.
+        // Let's try to use `add_bytes_field` for storage and manual cosine similarity if needed,
+        // or upgrade to use `add_vector_field` properly.
+        // Given the goal is "True Semantic Search", we should use `add_bytes_field` and implement
+        // brute-force or use `fastembed`'s utilities if available, OR use Tantivy's vector search.
+        // Tantivy 0.22 supports `add_vector_field`.
+        // Let's try to switch to `add_vector_field` to enable ANN.
+        let vector_options = TextOptions::default(); // Placeholder, vector options are different
+                                                     // Actually, Tantivy 0.22 `SchemaBuilder` has `add_vector_field`.
+                                                     // We need to import `VectorOptions`.
+                                                     // But since I don't want to break the build with guessing, I'll stick to `bytes` for storage
+                                                     // and we can implement a linear scan or use `add_vector_field` if I can confirm the API.
+                                                     // Let's stick to `bytes` for now as it is safe and we can do exact NN search which is fine for < 100k chunks.
         let embedding = builder.add_bytes_field("embedding", FAST | STORED);
-        // Note: Tantivy 0.22 uses bytes field for vectors in some configs,
-        // but typically we want a dedicated vector field if we want ANN.
-        // Let's check Tantivy docs or assume we need to use `add_facet_field` or similar?
-        // No, Tantivy has `add_vector_field`?
-        // Let's check the installed version features.
-        // For now, we'll use a bytes field to store it, but for SEARCH we need a vector field.
-        // Let's try to find the correct method.
 
         Self {
             schema: builder.build(),
