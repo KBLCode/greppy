@@ -55,6 +55,10 @@ fastembed = "4"
 crossbeam-channel = "0.5"
 regex = "1.12.2"
 
+# Parsing
+tree-sitter = "0.20"
+tree-sitter-rust = "0.20"
+
 [dev-dependencies]
 tempfile = "3"
 
