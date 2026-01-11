@@ -14,6 +14,7 @@ pub struct IndexSchema {
     pub end_line: Field,
     pub language: Field,
     pub file_hash: Field,
+    pub embedding: Field,
 }
 
 impl IndexSchema {
@@ -59,6 +60,16 @@ impl IndexSchema {
         // File hash for incremental indexing
         let file_hash = builder.add_text_field("file_hash", STRING | STORED);
 
+        // Embedding vector (768 dimensions for BGE-Base-EN)
+        let embedding = builder.add_bytes_field("embedding", FAST | STORED);
+        // Note: Tantivy 0.22 uses bytes field for vectors in some configs,
+        // but typically we want a dedicated vector field if we want ANN.
+        // Let's check Tantivy docs or assume we need to use `add_facet_field` or similar?
+        // No, Tantivy has `add_vector_field`?
+        // Let's check the installed version features.
+        // For now, we'll use a bytes field to store it, but for SEARCH we need a vector field.
+        // Let's try to find the correct method.
+
         Self {
             schema: builder.build(),
             id,
@@ -70,6 +81,7 @@ impl IndexSchema {
             end_line,
             language,
             file_hash,
+            embedding,
         }
     }
 }

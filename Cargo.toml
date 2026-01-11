@@ -50,6 +50,10 @@ open = "5"
 url = "2"
 rand = "0.8"
 
+# AI & Embeddings
+fastembed = "4"
+crossbeam-channel = "0.5"
+
 [dev-dependencies]
 tempfile = "3"
 
