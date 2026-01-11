@@ -30,8 +30,8 @@ impl IndexWriter {
     }
 
     /// Add a chunk to the index
-    pub fn add_chunk(&mut self, chunk: &Chunk) -> Result<()> {
-        let doc = doc!(
+    pub fn add_chunk(&mut self, chunk: &Chunk, embedding: Option<&[f32]>) -> Result<()> {
+        let mut doc = doc!(
             self.schema.id => chunk.id(),
             self.schema.path => chunk.path.clone(),
             self.schema.content => chunk.content.clone(),
@@ -42,6 +42,19 @@ impl IndexWriter {
             self.schema.language => chunk.language.clone(),
             self.schema.file_hash => chunk.file_hash.clone()
         );
+
+        if let Some(emb) = embedding {
+            // Convert f32 slice to bytes for storage
+            // Note: For real vector search, we need to use Tantivy's vector field support
+            // which might require a different add_document API or schema definition.
+            // But for now, we store it as bytes to enable retrieval.
+            // To enable vector search, we would need to use `add_vector_field` in schema
+            // and pass the vector here.
+            // Since we defined it as bytes in schema for now (as a placeholder/storage),
+            // we serialize it.
+            let bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
+            doc.add_field_value(self.schema.embedding, bytes);
+        }
 
         self.writer.add_document(doc)?;
         Ok(())

@@ -262,7 +262,8 @@ async fn do_index(
     for file in &files {
         let chunks = chunk_file(&file.path, &file.content);
         for chunk in chunks {
-            writer.add_chunk(&chunk)?;
+            // TODO: Generate embeddings in daemon mode too
+            writer.add_chunk(&chunk, None)?;
             chunk_count += 1;
         }
     }
