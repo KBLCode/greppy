@@ -22,7 +22,7 @@ impl Chunk {
     }
 }
 
-/// Chunk a file into indexable pieces
+/// Chunk a file into indexable pieces using semantic heuristics
 pub fn chunk_file(path: &Path, content: &str) -> Vec<Chunk> {
     let language = detect_language(path);
     let file_hash = compute_hash(content);
@@ -38,11 +38,14 @@ pub fn chunk_file(path: &Path, content: &str) -> Vec<Chunk> {
     let mut start = 0;
 
     while start < lines.len() {
-        let end = (start + CHUNK_MAX_LINES).min(lines.len());
-        let chunk_content = lines[start..end].join("\n");
+        // Determine the best end line for this chunk
+        let end = find_smart_break_point(&lines, start, CHUNK_MAX_LINES);
+        
+        let chunk_lines = &lines[start..end];
+        let chunk_content = chunk_lines.join("\n");
 
-        // Try to extract symbol name from first non-empty line
-        let (symbol_name, symbol_type) = extract_symbol(&lines[start..end]);
+        // Try to extract symbol name from the chunk
+        let (symbol_name, symbol_type) = extract_symbol(chunk_lines);
 
         chunks.push(Chunk {
             path: path_str.clone(),
@@ -59,10 +62,91 @@ pub fn chunk_file(path: &Path, content: &str) -> Vec<Chunk> {
             break;
         }
 
-        start = end.saturating_sub(CHUNK_OVERLAP);
+        // Calculate next start with overlap
+        // If we broke at a clean boundary (e.g., end of function), we might not need overlap,
+        // but overlap is safer for search context.
+        start = end.saturating_sub(CHUNK_OVERLAP).max(start + 1);
     }
 
     chunks
+}
+
+/// Find a "smart" break point for a chunk
+/// Tries to keep functions/classes together or break at logical points
+fn find_smart_break_point(lines: &[&str], start: usize, max_lines: usize) -> usize {
+    let len = lines.len();
+    let hard_limit = (start + max_lines).min(len);
+    
+    // If we reached the end, just return it
+    if hard_limit == len {
+        return len;
+    }
+
+    // Look for a natural break point between (start + min_lines) and hard_limit
+    // We prefer breaking at:
+    // 1. Empty lines (paragraph breaks)
+    // 2. Lines with 0 indentation (top-level boundaries)
+    // 3. Closing braces '}' at start of line
+    
+    let min_lines = max_lines / 2; // Don't create tiny chunks if possible
+    let search_start = (start + min_lines).min(hard_limit);
+    
+    let mut best_break = hard_limit;
+    let mut best_score = 0;
+
+    for i in search_start..hard_limit {
+        let line = lines[i];
+        let trimmed = line.trim();
+        
+        let mut score = 0;
+        
+        // Empty lines are great break points
+        if trimmed.is_empty() {
+            score += 10;
+        }
+        
+        // Closing braces are good (end of block)
+        if trimmed == "}" || trimmed == "};" || trimmed == "];" || trimmed == ")" {
+            score += 8;
+            // Ideally break AFTER the closing brace
+            if i + 1 <= hard_limit {
+                // Return i+1 to include the brace in the current chunk
+                // But we are returning the exclusive end index.
+                // So if we return i+1, lines[start..i+1] includes the brace.
+                // Let's check the next line too.
+                if i + 1 < len && lines[i+1].trim().is_empty() {
+                    score += 5; // Even better if followed by empty line
+                }
+            }
+        }
+
+        // Top-level definitions (0 indentation) often start new blocks
+        // So breaking BEFORE them is good.
+        if !trimmed.is_empty() && !line.starts_with(' ') && !line.starts_with('\t') {
+            // If it looks like a definition
+            if trimmed.starts_with("fn ") || trimmed.starts_with("pub ") || trimmed.starts_with("class ") || trimmed.starts_with("def ") {
+                score += 5;
+            }
+        }
+
+        if score > best_score {
+            best_score = score;
+            // If we found a closing brace, we want to include it, so break at i+1
+            if trimmed.starts_with('}') || trimmed.starts_with(']') || trimmed.starts_with(')') {
+                best_break = i + 1;
+            } else {
+                // Otherwise break at i (exclude this line from current chunk, start next chunk with it)
+                best_break = i;
+            }
+        }
+    }
+
+    // If we found a good break point, use it. Otherwise use hard limit.
+    if best_score > 0 {
+        best_break
+    } else {
+        hard_limit
+    }
 }
 
 /// Compute hash of content
