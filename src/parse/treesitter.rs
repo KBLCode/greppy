@@ -3,6 +3,7 @@ use anyhow::Result;
 use tree_sitter::{Language, Node, Parser};
 
 pub struct TreeSitterParser {
+    #[allow(dead_code)]
     language: Language,
     lang_id: String,
     parser: Parser,

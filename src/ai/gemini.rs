@@ -2,8 +2,7 @@ use crate::core::error::{Error, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-const GEMINI_API_URL: &str =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+// const GEMINI_API_URL: &str = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
 
 #[derive(Debug, Serialize)]
 struct GenerateContentRequest {
@@ -26,6 +25,7 @@ struct Part {
 #[derive(Debug, Deserialize)]
 struct GenerateContentResponse {
     candidates: Option<Vec<Candidate>>,
+    #[allow(dead_code)]
     error: Option<ErrorResponse>,
 }
 
@@ -46,6 +46,7 @@ struct PartResponse {
 
 #[derive(Debug, Deserialize)]
 struct ErrorResponse {
+    #[allow(dead_code)]
     message: String,
 }
 
