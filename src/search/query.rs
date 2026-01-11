@@ -86,8 +86,15 @@ impl SearchQuery {
 
         // Let's implement a simple rescoring if embedding is present.
 
+        // Increase candidate pool for better recall
+        let candidate_limit = if self.embedding.is_some() {
+            (self.limit * 5).max(50)
+        } else {
+            self.limit
+        };
+
         let top_docs = searcher
-            .search(&query, &TopDocs::with_limit(self.limit * 2)) // Fetch more for re-ranking
+            .search(&query, &TopDocs::with_limit(candidate_limit))
             .map_err(|e| Error::SearchError {
                 message: format!("Search failed: {}", e),
             })?;
