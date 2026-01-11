@@ -20,6 +20,11 @@ impl Embedder {
         let embeddings = self.model.embed(documents, None)?;
         Ok(embeddings[0].clone())
     }
+
+    pub fn embed_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
+        let embeddings = self.model.embed(texts, None)?;
+        Ok(embeddings)
+    }
 }
 
 // Singleton instance for reuse if needed, though we might instantiate per process

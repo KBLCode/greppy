@@ -91,7 +91,7 @@ pub fn run(args: IndexArgs) -> Result<()> {
                 };
 
                 // Use the factory to get the correct parser
-                let parser = get_parser(&path);
+                let mut parser = get_parser(&path);
                 let chunks = match parser.chunk(&path.to_string_lossy(), &content) {
                     Ok(c) => c,
                     Err(e) => {
@@ -100,6 +100,9 @@ pub fn run(args: IndexArgs) -> Result<()> {
                     }
                 };
 
+                let mut batch_chunks = Vec::new();
+                let mut batch_texts = Vec::new();
+
                 for chunk in chunks {
                     let text_to_embed = format!(
                         "{}: {}",
@@ -107,8 +110,25 @@ pub fn run(args: IndexArgs) -> Result<()> {
                         chunk.content
                     );
 
-                    if let Ok(embedding) = emb.embed(&text_to_embed) {
-                        let _ = d_tx.send((chunk, embedding));
+                    batch_chunks.push(chunk);
+                    batch_texts.push(text_to_embed);
+
+                    if batch_chunks.len() >= 32 {
+                        if let Ok(embeddings) = emb.embed_batch(batch_texts.clone()) {
+                            for (c, e) in batch_chunks.drain(..).zip(embeddings) {
+                                let _ = d_tx.send((c, e));
+                            }
+                        }
+                        batch_texts.clear();
+                    }
+                }
+
+                // Flush remaining
+                if !batch_chunks.is_empty() {
+                    if let Ok(embeddings) = emb.embed_batch(batch_texts) {
+                        for (c, e) in batch_chunks.into_iter().zip(embeddings) {
+                            let _ = d_tx.send((c, e));
+                        }
                     }
                 }
             }

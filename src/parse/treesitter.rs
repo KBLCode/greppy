@@ -5,23 +5,28 @@ use tree_sitter::{Language, Node, Parser};
 pub struct TreeSitterParser {
     language: Language,
     lang_id: String,
+    parser: Parser,
 }
 
 impl TreeSitterParser {
     pub fn new(language: Language, lang_id: &str) -> Self {
+        let mut parser = Parser::new();
+        parser
+            .set_language(language)
+            .expect("Error loading language");
         Self {
             language,
             lang_id: lang_id.to_string(),
+            parser,
         }
     }
 }
 
 impl CodeParser for TreeSitterParser {
-    fn chunk(&self, path: &str, content: &str) -> Result<Vec<Chunk>> {
-        let mut parser = Parser::new();
-        parser.set_language(self.language)?;
-
-        let tree = parser
+    fn chunk(&mut self, path: &str, content: &str) -> Result<Vec<Chunk>> {
+        // Reuse self.parser
+        let tree = self
+            .parser
             .parse(content, None)
             .ok_or_else(|| anyhow::anyhow!("Failed to parse"))?;
         let root_node = tree.root_node();
@@ -32,7 +37,9 @@ impl CodeParser for TreeSitterParser {
 
         if chunks.is_empty() {
             use crate::parse::parser::HeuristicParser;
-            return HeuristicParser.chunk(path, content);
+            // HeuristicParser is stateless, so we can just instantiate it
+            let mut hp = HeuristicParser;
+            return hp.chunk(path, content);
         }
 
         Ok(chunks)
