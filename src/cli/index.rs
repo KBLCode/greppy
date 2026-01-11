@@ -6,7 +6,6 @@ use crate::core::project::Project;
 use crate::index::{IndexWriter, TantivyIndex};
 use crate::parse::{get_parser, Chunk};
 use crossbeam_channel::{bounded, Receiver, Sender};
-use ignore::overrides::OverrideBuilder;
 use ignore::WalkBuilder;
 use std::env;
 use std::path::PathBuf;
@@ -50,22 +49,6 @@ pub fn run(args: IndexArgs) -> Result<()> {
     let (path_tx, path_rx): (Sender<PathBuf>, Receiver<PathBuf>) = bounded(1000);
     let (doc_tx, doc_rx): (Sender<(Chunk, Vec<f32>)>, Receiver<(Chunk, Vec<f32>)>) = bounded(1000);
 
-    // Build overrides from config
-    let mut override_builder = OverrideBuilder::new(&project.root);
-    for pattern in &config.ignore.patterns {
-        // ignore crate expects patterns like "!target/" to whitelist, or "target/" to ignore.
-        // But OverrideBuilder::add() treats patterns as overrides.
-        // To ignore a file, we usually use .gitignore.
-        // If we want to force ignore via config, we should check how OverrideBuilder works.
-        // "A match with a pattern starting with ! means the file is whitelisted."
-        // "A match with a pattern NOT starting with ! means the file is IGNORED."
-        // So we just add the pattern.
-        let _ = override_builder.add(pattern);
-    }
-    let overrides = override_builder
-        .build()
-        .unwrap_or_else(|_| OverrideBuilder::new(&project.root).build().unwrap());
-
     // Spawn Walker Thread
     let walker_root = project.root.clone();
     let walker_config = config.clone();
@@ -76,7 +59,6 @@ pub fn run(args: IndexArgs) -> Result<()> {
             .git_ignore(true)
             .git_global(true)
             .git_exclude(true)
-            .overrides(overrides)
             .max_filesize(Some(walker_config.index.max_file_size))
             .build();
 
@@ -85,6 +67,7 @@ pub fn run(args: IndexArgs) -> Result<()> {
             if path.is_dir() || !is_code_file(path) {
                 continue;
             }
+            // Manual check removed, handled by overrides
             let _ = walker_tx.send(path.to_path_buf());
         }
     });

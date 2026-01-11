@@ -2,3 +2,4 @@
 /docs
 /serena
 **/*.DS_Store
+.fastembed_cache
