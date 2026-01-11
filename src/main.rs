@@ -23,5 +23,6 @@ async fn main() -> Result<()> {
         Commands::Forget(args) => greppy::cli::forget::run(args),
         Commands::Login(args) => greppy::cli::login::run(args).await,
         Commands::Logout(args) => greppy::cli::logout::run(args),
+        Commands::Ask(args) => greppy::cli::ask::run(args).await,
     }
 }

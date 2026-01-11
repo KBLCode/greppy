@@ -1,5 +1,6 @@
 //! CLI command definitions and handlers
 
+pub mod ask;
 pub mod daemon;
 pub mod forget;
 pub mod index;
@@ -43,6 +44,9 @@ pub enum Commands {
 
     /// Log out
     Logout(logout::LogoutArgs),
+
+    /// Ask a question about the codebase
+    Ask(ask::AskArgs),
 }
 
 /// Arguments for the search command
