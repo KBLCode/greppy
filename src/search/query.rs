@@ -2,12 +2,12 @@
 
 use crate::core::error::{Error, Result};
 use crate::index::TantivyIndex;
-use crate::search::results::{SearchResult, SearchResults};
+use crate::search::results::{SearchResponse, SearchResult};
 use std::path::PathBuf;
 use std::time::Instant;
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, BoostQuery, Occur, Query, TermQuery};
-use tantivy::schema::IndexRecordOption;
+use tantivy::schema::{IndexRecordOption, Value};
 use tantivy::tokenizer::TextAnalyzer;
 use tantivy::Term;
 use tracing::debug;
@@ -55,7 +55,7 @@ impl SearchQuery {
     }
 
     /// Execute the search against an index
-    pub fn execute(&self, index: &TantivyIndex) -> Result<SearchResults> {
+    pub fn execute(&self, index: &TantivyIndex) -> Result<SearchResponse> {
         let start = Instant::now();
 
         let searcher = index.reader.searcher();
@@ -74,15 +74,16 @@ impl SearchQuery {
         // Collect results
         let mut results = Vec::new();
         for (score, doc_address) in top_docs {
-            let doc = searcher.doc(doc_address).map_err(|e| Error::SearchError {
-                message: format!("Failed to retrieve doc: {}", e),
-            })?;
+            let doc: tantivy::TantivyDocument =
+                searcher.doc(doc_address).map_err(|e| Error::SearchError {
+                    message: format!("Failed to retrieve doc: {}", e),
+                })?;
 
             let path = doc
                 .get_first(schema.path)
                 .and_then(|v| v.as_str())
-                .map(PathBuf::from)
-                .unwrap_or_default();
+                .unwrap_or("")
+                .to_string();
 
             let content = doc
                 .get_first(schema.content)
@@ -131,17 +132,20 @@ impl SearchQuery {
         }
 
         let elapsed = start.elapsed();
+        let elapsed_ms = elapsed.as_secs_f64() * 1000.0;
+
         debug!(
             query = %self.text,
             results = results.len(),
-            elapsed_ms = elapsed.as_secs_f64() * 1000.0,
+            elapsed_ms = elapsed_ms,
             "Search completed"
         );
 
-        Ok(SearchResults {
+        Ok(SearchResponse {
             results,
             query: self.text.clone(),
-            elapsed,
+            elapsed_ms,
+            project: "unknown".to_string(), // TODO: Pass project name
         })
     }
 
@@ -150,11 +154,12 @@ impl SearchQuery {
         let schema = &index.schema;
 
         // Tokenize the query
-        let tokenizer = index.index.tokenizer_for_field(schema.content).map_err(|e| {
-            Error::SearchError {
+        let mut tokenizer = index
+            .index
+            .tokenizer_for_field(schema.content)
+            .map_err(|e| Error::SearchError {
                 message: format!("Failed to get tokenizer: {}", e),
-            }
-        })?;
+            })?;
 
         let mut tokens = Vec::new();
         let mut token_stream = tokenizer.token_stream(&self.text);

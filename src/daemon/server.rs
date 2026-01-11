@@ -1,10 +1,10 @@
-use crate::cache::QueryCache;
-use crate::config::Config;
+use crate::core::config::Config;
+use crate::core::error::Result;
+use crate::core::project::{Project, ProjectEntry, Registry};
+use crate::daemon::cache::QueryCache;
 use crate::daemon::protocol::{Method, ProjectInfo, Request, Response, ResponseResult};
-use crate::error::Result;
-use crate::index::{IndexSearcher, IndexWriter};
+use crate::index::{IndexSearcher, IndexWriter, TantivyIndex};
 use crate::parse::{chunk_file, walk_project};
-use crate::project::{Project, ProjectEntry, Registry};
 use crate::search::SearchResponse;
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -156,7 +156,7 @@ async fn handle_search(
     // Check cache
     let cache_key = format!("{}:{}:{}", project_path, query, limit);
     {
-        let cache = state.cache.read();
+        let mut cache = state.cache.write();
         if let Some(cached) = cache.get(&cache_key) {
             return ResponseResult::Search(cached.clone());
         }
@@ -255,7 +255,8 @@ async fn do_index(
     let files = walk_project(path)?;
     let file_count = files.len();
 
-    let mut writer = IndexWriter::open_or_create(path)?;
+    let index = TantivyIndex::open_or_create(path)?;
+    let mut writer = IndexWriter::new(&index)?;
     let mut chunk_count = 0;
 
     for file in &files {

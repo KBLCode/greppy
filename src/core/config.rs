@@ -178,8 +178,22 @@ impl Config {
         Ok(home.join("indexes").join(format!("{:016x}", hash)))
     }
 
+    /// Get registry file path (tracks indexed projects)
+    pub fn registry_path() -> Result<PathBuf> {
+        Ok(Self::greppy_home()?.join("registry.json"))
+    }
+
+    /// Ensure home directory exists
+    pub fn ensure_home() -> Result<()> {
+        let home = Self::greppy_home()?;
+        if !home.exists() {
+            std::fs::create_dir_all(&home)?;
+        }
+        Ok(())
+    }
+
     /// Get the daemon socket path
-    pub fn daemon_socket() -> Result<PathBuf> {
+    pub fn socket_path() -> Result<PathBuf> {
         if let Ok(socket) = std::env::var("GREPPY_DAEMON_SOCKET") {
             return Ok(PathBuf::from(socket));
         }
@@ -187,3 +201,7 @@ impl Config {
         Ok(home.join("daemon.sock"))
     }
 }
+
+pub const MAX_FILE_SIZE: u64 = 1_048_576; // 1MB
+pub const CHUNK_MAX_LINES: usize = 50;
+pub const CHUNK_OVERLAP: usize = 5;

@@ -1,5 +1,5 @@
-use crate::config::MAX_FILE_SIZE;
-use crate::error::Result;
+use crate::core::config::MAX_FILE_SIZE;
+use crate::core::error::Result;
 use ignore::WalkBuilder;
 use std::path::{Path, PathBuf};
 
@@ -54,30 +54,45 @@ fn is_code_file(path: &Path) -> bool {
     matches!(
         ext.as_str(),
         "ts" | "tsx"
-            | "js" | "jsx" | "mjs" | "cjs"
-            | "py" | "pyi"
+            | "js"
+            | "jsx"
+            | "mjs"
+            | "cjs"
+            | "py"
+            | "pyi"
             | "rs"
             | "go"
             | "java"
-            | "kt" | "kts"
+            | "kt"
+            | "kts"
             | "scala"
             | "rb"
             | "php"
-            | "c" | "h"
-            | "cpp" | "cc" | "cxx" | "hpp"
+            | "c"
+            | "h"
+            | "cpp"
+            | "cc"
+            | "cxx"
+            | "hpp"
             | "cs"
             | "swift"
-            | "ex" | "exs"
-            | "erl" | "hrl"
+            | "ex"
+            | "exs"
+            | "erl"
+            | "hrl"
             | "hs"
-            | "ml" | "mli"
+            | "ml"
+            | "mli"
             | "lua"
-            | "sh" | "bash" | "zsh"
+            | "sh"
+            | "bash"
+            | "zsh"
             | "sql"
             | "vue"
             | "svelte"
             | "md"
-            | "yaml" | "yml"
+            | "yaml"
+            | "yml"
             | "toml"
             | "json"
     )

@@ -6,7 +6,7 @@ use std::path::Path;
 
 /// Check if daemon is running
 pub fn is_running() -> Result<bool> {
-    let socket_path = Config::daemon_socket()?;
+    let socket_path = Config::socket_path()?;
     Ok(socket_path.exists())
 }
 

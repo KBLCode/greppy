@@ -44,4 +44,7 @@ pub enum Error {
 
     #[error("TOML parse error: {0}")]
     TomlParse(#[from] toml::de::Error),
+
+    #[error("Auth error: {0}")]
+    Auth(#[from] anyhow::Error),
 }

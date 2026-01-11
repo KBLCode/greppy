@@ -26,7 +26,7 @@ fn start_daemon() -> Result<()> {
 }
 
 fn stop_daemon() -> Result<()> {
-    let socket_path = Config::daemon_socket()?;
+    let socket_path = Config::socket_path()?;
     if socket_path.exists() {
         std::fs::remove_file(&socket_path)?;
         println!("Daemon stopped.");

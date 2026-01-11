@@ -5,7 +5,8 @@ use greppy::cli::{Cli, Commands};
 use greppy::core::error::Result;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // Initialize logging
     tracing_subscriber::registry()
         .with(fmt::layer())
@@ -20,5 +21,7 @@ fn main() -> Result<()> {
         Commands::Daemon(args) => greppy::cli::daemon::run(args),
         Commands::List(args) => greppy::cli::list::run(args),
         Commands::Forget(args) => greppy::cli::forget::run(args),
+        Commands::Login(args) => greppy::cli::login::run(args).await,
+        Commands::Logout(args) => greppy::cli::logout::run(args),
     }
 }

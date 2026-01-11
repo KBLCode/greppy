@@ -4,10 +4,9 @@ pub mod human;
 pub mod json;
 
 use crate::cli::OutputFormat;
-use crate::search::SearchResults;
+use crate::search::SearchResponse;
 
-/// Format search results for output
-pub fn format_results(results: &SearchResults, format: OutputFormat) -> String {
+pub fn format_results(results: &SearchResponse, format: OutputFormat) -> String {
     match format {
         OutputFormat::Human => human::format(results),
         OutputFormat::Json => json::format(results),

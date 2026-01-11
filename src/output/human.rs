@@ -1,25 +1,24 @@
 //! Human-readable output formatting
 
-use crate::search::SearchResults;
+use crate::search::SearchResponse;
 
 /// Format results for human consumption
-pub fn format(results: &SearchResults) -> String {
+pub fn format(results: &SearchResponse) -> String {
     let mut output = String::new();
 
-    if results.is_empty() {
+    if results.results.is_empty() {
         output.push_str(&format!(
             "No results found for '{}' ({:.1}ms)\n",
-            results.query,
-            results.elapsed.as_secs_f64() * 1000.0
+            results.query, results.elapsed_ms
         ));
         return output;
     }
 
     output.push_str(&format!(
         "Found {} results for '{}' ({:.1}ms)\n\n",
-        results.len(),
+        results.results.len(),
         results.query,
-        results.elapsed.as_secs_f64() * 1000.0
+        results.elapsed_ms
     ));
 
     for (i, result) in results.results.iter().enumerate() {
@@ -27,7 +26,7 @@ pub fn format(results: &SearchResults) -> String {
         output.push_str(&format!(
             "{}. {}:{}-{} ({:.2})\n",
             i + 1,
-            result.path.display(),
+            result.path,
             result.start_line,
             result.end_line,
             result.score
@@ -41,7 +40,7 @@ pub fn format(results: &SearchResults) -> String {
         // Content preview (first 3 lines, truncated)
         let preview_lines: Vec<&str> = result.content.lines().take(3).collect();
         for line in preview_lines {
-            let truncated = if line.len() > 80 {
+            let truncated: String = if line.len() > 80 {
                 format!("{}...", &line[..77])
             } else {
                 line.to_string()

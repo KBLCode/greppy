@@ -5,7 +5,7 @@ use crate::core::config::Config;
 use crate::core::error::Result;
 use crate::core::project::Project;
 use crate::index::{IndexWriter, TantivyIndex};
-use crate::parse::Chunker;
+use crate::parse::chunk_file;
 use ignore::WalkBuilder;
 use std::env;
 use std::time::Instant;
@@ -36,7 +36,6 @@ pub fn run(args: IndexArgs) -> Result<()> {
     };
 
     let mut writer = IndexWriter::new(&index)?;
-    let chunker = Chunker::new();
 
     // Walk the project directory
     let walker = WalkBuilder::new(&project.root)
@@ -79,13 +78,7 @@ pub fn run(args: IndexArgs) -> Result<()> {
         };
 
         // Chunk the file
-        let chunks = match chunker.chunk_file(path, &content) {
-            Ok(c) => c,
-            Err(e) => {
-                warn!(path = %path.display(), error = %e, "Failed to chunk file");
-                continue;
-            }
-        };
+        let chunks = chunk_file(path, &content);
 
         // Add chunks to index
         for chunk in &chunks {
@@ -96,7 +89,11 @@ pub fn run(args: IndexArgs) -> Result<()> {
         file_count += 1;
 
         if file_count % 100 == 0 {
-            debug!(files = file_count, chunks = chunk_count, "Indexing progress");
+            debug!(
+                files = file_count,
+                chunks = chunk_count,
+                "Indexing progress"
+            );
         }
     }
 

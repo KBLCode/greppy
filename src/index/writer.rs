@@ -1,9 +1,10 @@
-use crate::config::Config;
-use crate::error::{GreppyError, Result};
+use crate::core::config::Config;
+use crate::core::error::{Error, Result};
 use crate::index::schema::IndexSchema;
+use crate::index::tantivy_index::TantivyIndex;
 use crate::parse::Chunk;
 use std::path::Path;
-use tantivy::{doc, Index, IndexWriter as TantivyWriter};
+use tantivy::{doc, IndexWriter as TantivyWriter};
 
 const WRITER_HEAP_SIZE: usize = 50_000_000; // 50MB
 
@@ -13,32 +14,19 @@ pub struct IndexWriter {
 }
 
 impl IndexWriter {
-    /// Create a new index for a project
-    pub fn create(project_path: &Path) -> Result<Self> {
-        let index_dir = Config::index_dir(project_path)?;
-        std::fs::create_dir_all(&index_dir)?;
-
-        let schema = IndexSchema::new();
-        let index = Index::create_in_dir(&index_dir, schema.schema.clone())
-            .map_err(|e| GreppyError::Index(e.to_string()))?;
-
+    /// Create a new index writer from an existing index
+    pub fn new(index: &TantivyIndex) -> Result<Self> {
         let writer = index
+            .index
             .writer(WRITER_HEAP_SIZE)
-            .map_err(|e| GreppyError::Index(e.to_string()))?;
+            .map_err(|e| Error::IndexError {
+                message: e.to_string(),
+            })?;
 
-        Ok(Self { writer, schema })
-    }
-
-    /// Open existing index or create new
-    pub fn open_or_create(project_path: &Path) -> Result<Self> {
-        let index_dir = Config::index_dir(project_path)?;
-
-        if index_dir.join("meta.json").exists() {
-            // Delete and recreate for now (simple approach)
-            std::fs::remove_dir_all(&index_dir)?;
-        }
-
-        Self::create(project_path)
+        Ok(Self {
+            writer,
+            schema: index.schema.clone(),
+        })
     }
 
     /// Add a chunk to the index
@@ -61,9 +49,9 @@ impl IndexWriter {
 
     /// Commit changes
     pub fn commit(mut self) -> Result<()> {
-        self.writer
-            .commit()
-            .map_err(|e| GreppyError::Index(e.to_string()))?;
+        self.writer.commit().map_err(|e| Error::IndexError {
+            message: e.to_string(),
+        })?;
         Ok(())
     }
 }

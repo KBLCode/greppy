@@ -1,4 +1,4 @@
-use crate::config::{CHUNK_MAX_LINES, CHUNK_OVERLAP};
+use crate::core::config::{CHUNK_MAX_LINES, CHUNK_OVERLAP};
 use crate::parse::walker::detect_language;
 use std::path::Path;
 
@@ -187,7 +187,8 @@ fn extract_class_name(line: &str) -> Option<String> {
     // impl Name
     if line.starts_with("impl ") || line.starts_with("impl<") {
         let rest = line.strip_prefix("impl")?;
-        let rest = rest.trim_start_matches(|c: char| c == '<' || c.is_alphanumeric() || c == '_' || c == ',');
+        let rest = rest
+            .trim_start_matches(|c: char| c == '<' || c.is_alphanumeric() || c == '_' || c == ',');
         let rest = rest.trim_start_matches('>').trim();
         return rest
             .split(|c| c == ' ' || c == '{' || c == '<')
@@ -203,10 +204,7 @@ fn extract_method_name(line: &str) -> Option<String> {
     if line.contains("pub ") && line.contains("fn ") {
         let idx = line.find("fn ")?;
         let rest = &line[idx + 3..];
-        return rest
-            .split('(')
-            .next()
-            .map(|s| s.trim().to_string());
+        return rest.split('(').next().map(|s| s.trim().to_string());
     }
 
     // async name( in class context

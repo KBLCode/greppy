@@ -1,13 +1,14 @@
-use crate::config::Config;
-use crate::error::{GreppyError, Result};
+use crate::core::config::Config;
+use crate::core::error::{Error, Result};
 use crate::index::schema::IndexSchema;
 use crate::search::SearchResult;
 use std::path::Path;
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, BoostQuery, Occur, Query, TermQuery};
-use tantivy::schema::IndexRecordOption;
+use tantivy::schema::{IndexRecordOption, Value};
 use tantivy::{Index, IndexReader, ReloadPolicy, Term};
 
+#[derive(Clone)]
 pub struct IndexSearcher {
     reader: IndexReader,
     schema: IndexSchema,
@@ -20,17 +21,23 @@ impl IndexSearcher {
         let index_dir = Config::index_dir(project_path)?;
 
         if !index_dir.join("meta.json").exists() {
-            return Err(GreppyError::IndexNotFound(project_path.to_path_buf()));
+            return Err(Error::IndexNotFound {
+                path: project_path.to_path_buf(),
+            });
         }
 
         let schema = IndexSchema::new();
-        let index = Index::open_in_dir(&index_dir)?;
+        let index = Index::open_in_dir(&index_dir).map_err(|e| Error::IndexError {
+            message: e.to_string(),
+        })?;
 
         let reader = index
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)
             .try_into()
-            .map_err(|e| GreppyError::Index(format!("Failed to create reader: {}", e)))?;
+            .map_err(|e| Error::IndexError {
+                message: format!("Failed to create reader: {}", e),
+            })?;
 
         Ok(Self {
             reader,
@@ -50,10 +57,12 @@ impl IndexSearcher {
         let searcher = self.reader.searcher();
 
         // Tokenize query
-        let tokenizer = self
+        let mut tokenizer = self
             .index
             .tokenizer_for_field(self.schema.content)
-            .map_err(|e| GreppyError::Search(e.to_string()))?;
+            .map_err(|e| Error::SearchError {
+                message: e.to_string(),
+            })?;
 
         let mut tokens = Vec::new();
         let mut stream = tokenizer.token_stream(query_text);
@@ -86,15 +95,18 @@ impl IndexSearcher {
         // Execute search
         let top_docs = searcher
             .search(&query, &TopDocs::with_limit(limit))
-            .map_err(|e| GreppyError::Search(e.to_string()))?;
+            .map_err(|e| Error::SearchError {
+                message: e.to_string(),
+            })?;
 
         // Collect results
         let mut results = Vec::new();
 
         for (score, doc_address) in top_docs {
-            let doc: tantivy::TantivyDocument = searcher
-                .doc(doc_address)
-                .map_err(|e| GreppyError::Search(e.to_string()))?;
+            let doc: tantivy::TantivyDocument =
+                searcher.doc(doc_address).map_err(|e| Error::SearchError {
+                    message: e.to_string(),
+                })?;
 
             let path = doc
                 .get_first(self.schema.path)

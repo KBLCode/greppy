@@ -4,6 +4,8 @@ pub mod daemon;
 pub mod forget;
 pub mod index;
 pub mod list;
+pub mod login;
+pub mod logout;
 pub mod search;
 
 use clap::{Parser, Subcommand};
@@ -35,6 +37,12 @@ pub enum Commands {
 
     /// Remove a project's index
     Forget(ForgetArgs),
+
+    /// Authenticate with Google
+    Login(login::LoginArgs),
+
+    /// Log out
+    Logout(logout::LogoutArgs),
 }
 
 /// Arguments for the search command
