@@ -71,6 +71,13 @@ impl TreeSitterParser {
                     kind,
                     "function_declaration" | "method_declaration" | "type_declaration"
                 ),
+                "java" => matches!(
+                    kind,
+                    "method_declaration"
+                        | "class_declaration"
+                        | "interface_declaration"
+                        | "enum_declaration"
+                ),
                 _ => false,
             };
 
@@ -154,6 +161,12 @@ fn extract_name_from_node(node: Node, source: &str, lang: &str) -> Option<String
             None
         }
         "go" => {
+            if let Some(name_node) = node.child_by_field_name("name") {
+                return Some(name_node.utf8_text(source.as_bytes()).ok()?.to_string());
+            }
+            None
+        }
+        "java" => {
             if let Some(name_node) = node.child_by_field_name("name") {
                 return Some(name_node.utf8_text(source.as_bytes()).ok()?.to_string());
             }

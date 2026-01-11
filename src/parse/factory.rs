@@ -23,6 +23,7 @@ pub fn get_parser(path: &Path) -> Box<dyn CodeParser + Send + Sync> {
             "javascript",
         )),
         "go" => Box::new(TreeSitterParser::new(tree_sitter_go::language(), "go")),
+        "java" => Box::new(TreeSitterParser::new(tree_sitter_java::language(), "java")),
         _ => Box::new(HeuristicParser),
     }
 }
