@@ -1,0 +1,24 @@
+//! Greppy CLI entry point
+
+use clap::Parser;
+use greppy::cli::{Cli, Commands};
+use greppy::core::error::Result;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+
+fn main() -> Result<()> {
+    // Initialize logging
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_env("GREPPY_LOG"))
+        .init();
+
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Search(args) => greppy::cli::search::run(args),
+        Commands::Index(args) => greppy::cli::index::run(args),
+        Commands::Daemon(args) => greppy::cli::daemon::run(args),
+        Commands::List(args) => greppy::cli::list::run(args),
+        Commands::Forget(args) => greppy::cli::forget::run(args),
+    }
+}
