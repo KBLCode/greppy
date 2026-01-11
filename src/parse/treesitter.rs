@@ -27,15 +27,35 @@ impl CodeParser for TreeSitterParser {
         let root_node = tree.root_node();
 
         let mut chunks = Vec::new();
-        let mut cursor = root_node.walk();
+        // Use a recursive function to find chunkable nodes
+        self.collect_chunks(root_node, content, path, &mut chunks);
 
-        for child in root_node.children(&mut cursor) {
+        if chunks.is_empty() {
+            use crate::parse::parser::HeuristicParser;
+            return HeuristicParser.chunk(path, content);
+        }
+
+        Ok(chunks)
+    }
+}
+
+impl TreeSitterParser {
+    fn collect_chunks(&self, node: Node, content: &str, path: &str, chunks: &mut Vec<Chunk>) {
+        let mut cursor = node.walk();
+
+        // Iterate over all children
+        for child in node.children(&mut cursor) {
             let kind = child.kind();
 
             let is_chunkable = match self.lang_id.as_str() {
                 "rust" => matches!(
                     kind,
-                    "function_item" | "impl_item" | "struct_item" | "enum_item" | "mod_item"
+                    "function_item"
+                        | "impl_item"
+                        | "struct_item"
+                        | "enum_item"
+                        | "mod_item"
+                        | "trait_item"
                 ),
                 "python" => matches!(kind, "function_definition" | "class_definition"),
                 "typescript" | "javascript" | "tsx" => matches!(
@@ -62,30 +82,49 @@ impl CodeParser for TreeSitterParser {
 
                 let chunk_content = &content[start_byte..end_byte];
 
-                let symbol_name = extract_name_from_node(child, content, self.lang_id.as_str());
-                let symbol_type = Some(kind.to_string());
+                // If the chunk is massive (e.g. a huge module or class), we might want to recurse INSTEAD of chunking the whole thing.
+                // Or do both?
+                // For now, let's stick to a simple rule:
+                // If it's a "container" type (mod_item, class_definition, impl_item) AND it's large (> 50 lines),
+                // we recurse into it to find smaller chunks.
+                // If it's small, we keep it as one chunk.
+                // Functions are usually kept whole unless huge.
 
-                let file_hash = format!("{:016x}", xxhash_rust::xxh3::xxh3_64(content.as_bytes()));
+                let line_count = end_line - start_line;
+                let is_container = matches!(
+                    kind,
+                    "mod_item" | "impl_item" | "class_definition" | "class_declaration"
+                );
 
-                chunks.push(Chunk {
-                    path: path.to_string(),
-                    content: chunk_content.to_string(),
-                    symbol_name,
-                    symbol_type,
-                    start_line,
-                    end_line,
-                    language: self.lang_id.clone(),
-                    file_hash,
-                });
+                if is_container && line_count > 50 {
+                    // Recurse into container to find smaller pieces
+                    self.collect_chunks(child, content, path, chunks);
+                } else {
+                    // It's a good chunk (function, small class, etc.)
+                    let symbol_name = extract_name_from_node(child, content, self.lang_id.as_str());
+                    let symbol_type = Some(kind.to_string());
+                    let file_hash =
+                        format!("{:016x}", xxhash_rust::xxh3::xxh3_64(content.as_bytes()));
+
+                    chunks.push(Chunk {
+                        path: path.to_string(),
+                        content: chunk_content.to_string(),
+                        symbol_name,
+                        symbol_type,
+                        start_line,
+                        end_line,
+                        language: self.lang_id.clone(),
+                        file_hash,
+                    });
+                }
+            } else {
+                // If not chunkable (e.g. a block, or just a statement), recurse to find nested chunkables
+                // e.g. inside a `mod` that wasn't caught above, or just top level statements
+                if child.child_count() > 0 {
+                    self.collect_chunks(child, content, path, chunks);
+                }
             }
         }
-
-        if chunks.is_empty() {
-            use crate::parse::parser::HeuristicParser;
-            return HeuristicParser.chunk(path, content);
-        }
-
-        Ok(chunks)
     }
 }
 
