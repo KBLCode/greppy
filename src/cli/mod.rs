@@ -7,6 +7,7 @@ pub mod index;
 pub mod list;
 pub mod login;
 pub mod logout;
+pub mod read;
 pub mod search;
 
 use clap::{Parser, Subcommand};
@@ -47,6 +48,9 @@ pub enum Commands {
 
     /// Ask a question about the codebase
     Ask(ask::AskArgs),
+
+    /// Read a file or specific lines
+    Read(read::ReadArgs),
 }
 
 /// Arguments for the search command

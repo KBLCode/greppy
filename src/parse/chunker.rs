@@ -40,7 +40,7 @@ pub fn chunk_file(path: &Path, content: &str) -> Vec<Chunk> {
     while start < lines.len() {
         // Determine the best end line for this chunk
         let end = find_smart_break_point(&lines, start, CHUNK_MAX_LINES);
-        
+
         let chunk_lines = &lines[start..end];
         let chunk_content = chunk_lines.join("\n");
 
@@ -76,7 +76,7 @@ pub fn chunk_file(path: &Path, content: &str) -> Vec<Chunk> {
 fn find_smart_break_point(lines: &[&str], start: usize, max_lines: usize) -> usize {
     let len = lines.len();
     let hard_limit = (start + max_lines).min(len);
-    
+
     // If we reached the end, just return it
     if hard_limit == len {
         return len;
@@ -87,24 +87,24 @@ fn find_smart_break_point(lines: &[&str], start: usize, max_lines: usize) -> usi
     // 1. Empty lines (paragraph breaks)
     // 2. Lines with 0 indentation (top-level boundaries)
     // 3. Closing braces '}' at start of line
-    
+
     let min_lines = max_lines / 2; // Don't create tiny chunks if possible
     let search_start = (start + min_lines).min(hard_limit);
-    
+
     let mut best_break = hard_limit;
     let mut best_score = 0;
 
     for i in search_start..hard_limit {
         let line = lines[i];
         let trimmed = line.trim();
-        
+
         let mut score = 0;
-        
+
         // Empty lines are great break points
         if trimmed.is_empty() {
             score += 10;
         }
-        
+
         // Closing braces are good (end of block)
         if trimmed == "}" || trimmed == "};" || trimmed == "];" || trimmed == ")" {
             score += 8;
@@ -114,7 +114,7 @@ fn find_smart_break_point(lines: &[&str], start: usize, max_lines: usize) -> usi
                 // But we are returning the exclusive end index.
                 // So if we return i+1, lines[start..i+1] includes the brace.
                 // Let's check the next line too.
-                if i + 1 < len && lines[i+1].trim().is_empty() {
+                if i + 1 < len && lines[i + 1].trim().is_empty() {
                     score += 5; // Even better if followed by empty line
                 }
             }
@@ -124,7 +124,11 @@ fn find_smart_break_point(lines: &[&str], start: usize, max_lines: usize) -> usi
         // So breaking BEFORE them is good.
         if !trimmed.is_empty() && !line.starts_with(' ') && !line.starts_with('\t') {
             // If it looks like a definition
-            if trimmed.starts_with("fn ") || trimmed.starts_with("pub ") || trimmed.starts_with("class ") || trimmed.starts_with("def ") {
+            if trimmed.starts_with("fn ")
+                || trimmed.starts_with("pub ")
+                || trimmed.starts_with("class ")
+                || trimmed.starts_with("def ")
+            {
                 score += 5;
             }
         }

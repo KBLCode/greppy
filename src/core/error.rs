@@ -42,6 +42,9 @@ pub enum Error {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
+    #[error("IO error: {message}")]
+    IoError { message: String },
+
     #[error("TOML parse error: {0}")]
     TomlParse(#[from] toml::de::Error),
 

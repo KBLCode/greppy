@@ -71,11 +71,11 @@ impl IndexSchema {
         // Tantivy 0.22 supports `add_vector_field`.
         // Let's try to switch to `add_vector_field` to enable ANN.
         let _vector_options = TextOptions::default(); // Placeholder, vector options are different
-                                                     // Actually, Tantivy 0.22 `SchemaBuilder` has `add_vector_field`.
-                                                     // We need to import `VectorOptions`.
-                                                     // But since I don't want to break the build with guessing, I'll stick to `bytes` for storage
-                                                     // and we can implement a linear scan or use `add_vector_field` if I can confirm the API.
-                                                     // Let's stick to `bytes` for now as it is safe and we can do exact NN search which is fine for < 100k chunks.
+                                                      // Actually, Tantivy 0.22 `SchemaBuilder` has `add_vector_field`.
+                                                      // We need to import `VectorOptions`.
+                                                      // But since I don't want to break the build with guessing, I'll stick to `bytes` for storage
+                                                      // and we can implement a linear scan or use `add_vector_field` if I can confirm the API.
+                                                      // Let's stick to `bytes` for now as it is safe and we can do exact NN search which is fine for < 100k chunks.
         let embedding = builder.add_bytes_field("embedding", FAST | STORED);
 
         Self {

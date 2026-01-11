@@ -2,8 +2,8 @@ use crate::auth::server;
 use anyhow::{Context, Result};
 use oauth2::reqwest::async_http_client;
 use oauth2::{
-    basic::BasicClient, AuthUrl, ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl,
-    Scope, TokenResponse, TokenUrl,
+    basic::BasicClient, AuthUrl, ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
+    TokenResponse, TokenUrl,
 };
 use std::net::TcpListener;
 

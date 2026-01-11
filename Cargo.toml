@@ -53,6 +53,7 @@ rand = "0.8"
 # AI & Embeddings
 fastembed = "4"
 crossbeam-channel = "0.5"
+regex = "1.12.2"
 
 [dev-dependencies]
 tempfile = "3"
