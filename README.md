@@ -13,6 +13,12 @@ AI coding tools (Claude Code, OpenCode, Cursor, Aider) need fast code search. Ex
 
 Greppy gives you **<10ms semantic search** that runs entirely on your machine.
 
+## New in v0.4.0
+- **Google OAuth**: Secure authentication for AI features.
+- **Semantic Search**: Local vector embeddings for understanding intent.
+- **Ask Command**: Ask natural language questions about your codebase (powered by Gemini Flash).
+- **Parallel Indexing**: Blazing fast indexing using all CPU cores.
+
 ## Installation
 
 ```bash
@@ -29,14 +35,19 @@ cargo install greppy
 ## Quick Start
 
 ```bash
-# Index your project
+# 1. Authenticate (Optional, for AI features)
+greppy login
+
+# 2. Index your project
 cd your-project
 greppy index
 
-# Search
+# 3. Search
 greppy search "authentication middleware"
 greppy search "database connection" --limit 10
-greppy search "error handling" --json
+
+# 4. Ask Questions
+greppy ask "How does the authentication flow work?"
 ```
 
 ## Usage
@@ -54,6 +65,15 @@ Options:
   --include-tests      Include test files in results
 ```
 
+### Ask (AI)
+
+```bash
+greppy ask <question> [options]
+
+Options:
+  -p, --project <PATH> Project path (default: current directory)
+```
+
 ### Index
 
 ```bash
@@ -63,6 +83,13 @@ Options:
   -p, --project <PATH> Project path (default: current directory)
   -w, --watch          Watch for changes (daemon mode)
   --force              Force full re-index
+```
+
+### Auth
+
+```bash
+greppy login          # Authenticate with Google
+greppy logout         # Log out
 ```
 
 ### Daemon (Optional)
@@ -84,9 +111,9 @@ greppy forget <path>  # Remove a project's index
 
 ## How It Works
 
-1. **Indexing**: Greppy parses your code into semantic chunks (functions, classes, etc.) using tree-sitter
-2. **Search**: BM25 ranking with symbol name boosting finds the most relevant code
-3. **Speed**: Tantivy (Rust search engine) + memory-mapped indexes = sub-millisecond queries
+1. **Indexing**: Greppy parses your code into semantic chunks (functions, classes, etc.) using tree-sitter. It also generates vector embeddings locally using `fastembed-rs`.
+2. **Search**: A hybrid approach combining BM25 (keyword) and Vector Similarity (semantic) finds the most relevant code.
+3. **Speed**: Tantivy (Rust search engine) + memory-mapped indexes + parallel processing = sub-millisecond queries.
 
 ## Configuration
 
