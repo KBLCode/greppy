@@ -2,11 +2,10 @@ use crate::auth::server;
 use anyhow::{Context, Result};
 use oauth2::reqwest::async_http_client;
 use oauth2::{
-    basic::BasicClient, AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, RedirectUrl,
+    basic::BasicClient, AuthUrl, ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl,
     Scope, TokenResponse, TokenUrl,
 };
 use std::net::TcpListener;
-use tokio::sync::mpsc;
 
 // Standard Google OAuth constants
 // Note: For a real production app, we might want to use a specific Client ID

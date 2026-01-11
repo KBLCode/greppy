@@ -1,16 +1,13 @@
 //! Query parsing and execution
 
-use crate::ai::embedding::Embedder;
 use crate::core::error::{Error, Result};
 use crate::index::TantivyIndex;
 use crate::search::results::{SearchResponse, SearchResult};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Instant;
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, BoostQuery, Occur, Query, TermQuery};
 use tantivy::schema::{IndexRecordOption, Value};
-use tantivy::tokenizer::TextAnalyzer;
 use tantivy::Term;
 use tracing::debug;
 

@@ -1,6 +1,5 @@
 use anyhow::Result;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-use std::sync::Arc;
 
 pub struct Embedder {
     model: TextEmbedding,

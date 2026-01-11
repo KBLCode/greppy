@@ -70,7 +70,7 @@ impl IndexSchema {
         // brute-force or use `fastembed`'s utilities if available, OR use Tantivy's vector search.
         // Tantivy 0.22 supports `add_vector_field`.
         // Let's try to switch to `add_vector_field` to enable ANN.
-        let vector_options = TextOptions::default(); // Placeholder, vector options are different
+        let _vector_options = TextOptions::default(); // Placeholder, vector options are different
                                                      // Actually, Tantivy 0.22 `SchemaBuilder` has `add_vector_field`.
                                                      // We need to import `VectorOptions`.
                                                      // But since I don't want to break the build with guessing, I'll stick to `bytes` for storage

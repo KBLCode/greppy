@@ -1,14 +1,12 @@
 use crate::ai::embedding::Embedder;
 use crate::ai::gemini::GeminiClient;
 use crate::auth;
-use crate::cli::SearchArgs;
 use crate::core::error::{Error, Result};
 use crate::core::project::Project;
 use crate::index::TantivyIndex;
 use crate::search::SearchQuery;
 use clap::Parser;
 use std::env;
-use tracing::info;
 
 /// Arguments for the ask command
 #[derive(Parser, Debug)]

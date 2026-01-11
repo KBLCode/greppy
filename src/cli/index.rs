@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Run the index command
 pub fn run(args: IndexArgs) -> Result<()> {
@@ -118,7 +118,7 @@ pub fn run(args: IndexArgs) -> Result<()> {
     drop(doc_tx);
 
     // Main Thread: Write to Index
-    let mut file_count = 0; // Approximation
+    let _file_count = 0; // Approximation
     let mut chunk_count = 0;
 
     for (chunk, embedding) in doc_rx {

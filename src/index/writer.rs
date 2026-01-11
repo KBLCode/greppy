@@ -1,9 +1,7 @@
-use crate::core::config::Config;
 use crate::core::error::{Error, Result};
 use crate::index::schema::IndexSchema;
 use crate::index::tantivy_index::TantivyIndex;
 use crate::parse::Chunk;
-use std::path::Path;
 use tantivy::{doc, IndexWriter as TantivyWriter};
 
 const WRITER_HEAP_SIZE: usize = 50_000_000; // 50MB

@@ -1,7 +1,6 @@
 use crate::core::error::{Error, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 const GEMINI_API_URL: &str =
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
