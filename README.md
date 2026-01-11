@@ -111,7 +111,7 @@ greppy forget <path>  # Remove a project's index
 
 ## How It Works
 
-1. **Indexing**: Greppy parses your code into semantic chunks (functions, classes, etc.) using tree-sitter. It also generates vector embeddings locally using `fastembed-rs`.
+1. **Indexing**: Greppy parses your code into chunks (functions, classes, etc.) using heuristic analysis. It also generates vector embeddings locally using `fastembed-rs`.
 2. **Search**: A hybrid approach combining BM25 (keyword) and Vector Similarity (semantic) finds the most relevant code.
 3. **Speed**: Tantivy (Rust search engine) + memory-mapped indexes + parallel processing = sub-millisecond queries.
 
