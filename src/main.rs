@@ -14,7 +14,7 @@ async fn main() -> Result<()> {
         .init();
 
     // Print logo
-    println!("{}", include_str!("../unicodelogo.md"));
+    println!("\x1b[36m{}\x1b[0m", include_str!("../unicodelogo.md"));
 
     let cli = Cli::parse();
 
