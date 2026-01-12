@@ -1,3 +1,4 @@
+use crate::ai::embedding::Embedder;
 use crate::core::config::Config;
 use crate::core::error::Result;
 use crate::core::project::{Project, ProjectEntry, Registry};
@@ -259,12 +260,72 @@ async fn do_index(
     let mut writer = IndexWriter::new(&index)?;
     let mut chunk_count = 0;
 
+    // Initialize Embedder
+    // Note: In daemon mode, we might want to keep this loaded in DaemonState
+    // but for now, let's load it here. It's heavy but safe.
+    let embedder = Embedder::new().ok();
+
     for file in &files {
         let chunks = chunk_file(&file.path, &file.content);
+
+        let mut batch_chunks = Vec::new();
+        let mut batch_texts = Vec::new();
+
         for chunk in chunks {
-            // TODO: Generate embeddings in daemon mode too
-            writer.add_chunk(&chunk, None)?;
-            chunk_count += 1;
+            let text_to_embed = format!(
+                "{}: {}",
+                chunk.symbol_name.as_deref().unwrap_or("code"),
+                chunk.content
+            );
+
+            batch_chunks.push(chunk);
+            batch_texts.push(text_to_embed);
+
+            if batch_chunks.len() >= 32 {
+                if let Some(emb) = &embedder {
+                    if let Ok(embeddings) = emb.embed_batch(batch_texts.clone()) {
+                        for (c, e) in batch_chunks.drain(..).zip(embeddings) {
+                            writer.add_chunk(&c, Some(&e))?;
+                            chunk_count += 1;
+                        }
+                    } else {
+                        // Fallback if embedding fails
+                        for c in batch_chunks.drain(..) {
+                            writer.add_chunk(&c, None)?;
+                            chunk_count += 1;
+                        }
+                    }
+                } else {
+                    // No embedder
+                    for c in batch_chunks.drain(..) {
+                        writer.add_chunk(&c, None)?;
+                        chunk_count += 1;
+                    }
+                }
+                batch_texts.clear();
+            }
+        }
+
+        // Flush remaining
+        if !batch_chunks.is_empty() {
+            if let Some(emb) = &embedder {
+                if let Ok(embeddings) = emb.embed_batch(batch_texts) {
+                    for (c, e) in batch_chunks.into_iter().zip(embeddings) {
+                        writer.add_chunk(&c, Some(&e))?;
+                        chunk_count += 1;
+                    }
+                } else {
+                    for c in batch_chunks {
+                        writer.add_chunk(&c, None)?;
+                        chunk_count += 1;
+                    }
+                }
+            } else {
+                for c in batch_chunks {
+                    writer.add_chunk(&c, None)?;
+                    chunk_count += 1;
+                }
+            }
         }
     }
 
