@@ -10,7 +10,7 @@ use crate::parse::{chunk_file, walk_project};
 use crate::search::SearchResponse;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
@@ -36,6 +36,12 @@ pub struct DaemonState {
     pub file_watcher: Arc<FileWatcher>,
     #[allow(dead_code)]
     reindex_tx: mpsc::Sender<ReindexRequest>,
+}
+
+impl Default for DaemonState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DaemonState {
@@ -332,13 +338,9 @@ async fn handle_index(project_path: &str, force: bool, state: &DaemonState) -> R
 use crossbeam_channel::{bounded, Receiver, Sender};
 use std::thread;
 
-async fn do_index(
-    path: &PathBuf,
-    _force: bool,
-    state: &DaemonState,
-) -> Result<(usize, usize, f64)> {
+async fn do_index(path: &Path, _force: bool, state: &DaemonState) -> Result<(usize, usize, f64)> {
     let start = Instant::now();
-    let path_clone = path.clone();
+    let path_clone = path.to_path_buf();
 
     // Get or initialize embedder
     let embedder = state
@@ -366,13 +368,13 @@ async fn do_index(
         let mut chunk_count = 0;
 
         // Channels for pipeline
-        let (path_tx, path_rx): (
-            Sender<crate::parse::walker::FileInfo>,
-            Receiver<crate::parse::walker::FileInfo>,
-        ) = bounded(1000);
+        type FileInfoChannel = crate::parse::walker::FileInfo;
+        type ChunkEmbeddingChannel = (crate::parse::Chunk, Vec<f32>);
+        let (path_tx, path_rx): (Sender<FileInfoChannel>, Receiver<FileInfoChannel>) =
+            bounded(1000);
         let (doc_tx, doc_rx): (
-            Sender<(crate::parse::Chunk, Vec<f32>)>,
-            Receiver<(crate::parse::Chunk, Vec<f32>)>,
+            Sender<ChunkEmbeddingChannel>,
+            Receiver<ChunkEmbeddingChannel>,
         ) = bounded(1000);
 
         // Spawn Feeder Thread
@@ -461,7 +463,7 @@ async fn do_index(
     {
         let project = Project::from_path(path)?;
         let entry = ProjectEntry {
-            path: path.clone(),
+            path: path.to_path_buf(),
             name: project.name,
             indexed_at: SystemTime::now(),
             file_count,

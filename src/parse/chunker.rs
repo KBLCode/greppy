@@ -109,7 +109,7 @@ fn find_smart_break_point(lines: &[&str], start: usize, max_lines: usize) -> usi
         if trimmed == "}" || trimmed == "};" || trimmed == "];" || trimmed == ")" {
             score += 8;
             // Ideally break AFTER the closing brace
-            if i + 1 <= hard_limit {
+            if i < hard_limit {
                 // Return i+1 to include the brace in the current chunk
                 // But we are returning the exclusive end index.
                 // So if we return i+1, lines[start..i+1] includes the brace.
@@ -224,7 +224,7 @@ fn extract_function_name(line: &str) -> Option<String> {
     if line.starts_with("const ") || line.starts_with("let ") || line.starts_with("var ") {
         let rest = line.split_whitespace().nth(1)?;
         if line.contains("=>") || line.contains("function") {
-            return Some(rest.trim_end_matches(|c| c == '=' || c == ' ').to_string());
+            return Some(rest.trim_end_matches(['=', ' ']).to_string());
         }
     }
 
@@ -254,7 +254,7 @@ fn extract_class_name(line: &str) -> Option<String> {
     if line.starts_with("class ") {
         return line
             .strip_prefix("class ")?
-            .split(|c| c == ' ' || c == '{' || c == '(' || c == ':')
+            .split([' ', '{', '(', ':'])
             .next()
             .map(|s| s.trim().to_string());
     }
@@ -267,7 +267,7 @@ fn extract_class_name(line: &str) -> Option<String> {
             line.strip_prefix("struct ")?
         };
         return rest
-            .split(|c| c == ' ' || c == '{' || c == '(' || c == '<')
+            .split([' ', '{', '(', '<'])
             .next()
             .map(|s| s.trim().to_string());
     }
@@ -279,7 +279,7 @@ fn extract_class_name(line: &str) -> Option<String> {
             .trim_start_matches(|c: char| c == '<' || c.is_alphanumeric() || c == '_' || c == ',');
         let rest = rest.trim_start_matches('>').trim();
         return rest
-            .split(|c| c == ' ' || c == '{' || c == '<')
+            .split([' ', '{', '<'])
             .next()
             .map(|s| s.trim().to_string());
     }

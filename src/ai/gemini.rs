@@ -121,17 +121,14 @@ impl GeminiClient {
         // Temporary: I will use a placeholder URL logic that tries to use the config.
         // But first, let's write this client assuming we can get the URL.
 
-        // const GEMINI_API_URL: &str = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
-        );
+        let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
 
         // NOTE: With OAuth token, `generativelanguage` might reject if not using API Key.
         // But let's try sending the token as Bearer.
 
         let res = self
             .client
-            .post(&url)
+            .post(url)
             .header("Authorization", format!("Bearer {}", self.token))
             .header("Content-Type", "application/json")
             //.header("x-goog-user-project", "...") // Might be needed

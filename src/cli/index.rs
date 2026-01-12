@@ -74,11 +74,10 @@ pub async fn run(args: IndexArgs) -> Result<()> {
     println!("Model initialized.");
 
     // Channels for pipeline
+    type ChunkWithEmbedding = (Chunk, Option<Vec<f32>>);
     let (path_tx, path_rx): (Sender<PathBuf>, Receiver<PathBuf>) = bounded(1000);
-    let (doc_tx, doc_rx): (
-        Sender<(Chunk, Option<Vec<f32>>)>,
-        Receiver<(Chunk, Option<Vec<f32>>)>,
-    ) = bounded(1000);
+    let (doc_tx, doc_rx): (Sender<ChunkWithEmbedding>, Receiver<ChunkWithEmbedding>) =
+        bounded(1000);
 
     // Track embedding failures
     let embedding_failure_count = Arc::new(AtomicUsize::new(0));

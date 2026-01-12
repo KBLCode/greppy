@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Global configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Config {
     pub general: GeneralConfig,
@@ -68,19 +68,6 @@ pub struct CacheConfig {
 pub struct ProjectConfig {
     /// Project-specific ignore patterns
     pub ignore: Vec<String>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            general: GeneralConfig::default(),
-            watch: WatchConfig::default(),
-            ignore: IgnoreConfig::default(),
-            index: IndexConfig::default(),
-            cache: CacheConfig::default(),
-            projects: HashMap::new(),
-        }
-    }
 }
 
 impl Default for GeneralConfig {
