@@ -12,7 +12,7 @@ BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 REPO="KBLCode/greppy"
-VERSION="v0.7.0" 
+VERSION="v0.8.0" 
 BINARY="greppy"
 
 logo() {

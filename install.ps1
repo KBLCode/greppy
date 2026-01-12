@@ -4,7 +4,7 @@
 $ErrorActionPreference = "Stop"
 
 $REPO = "KBLCode/greppy"
-$VERSION = "v0.7.0"
+$VERSION = "v0.8.0"
 $TARGET = "x86_64-pc-windows-msvc"
 
 function Write-Logo {
