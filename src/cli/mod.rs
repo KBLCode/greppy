@@ -119,6 +119,10 @@ pub struct IndexArgs {
     /// Force full re-index
     #[arg(long)]
     pub force: bool,
+
+    /// Fast mode: skip embeddings (keyword search only, ~100x faster)
+    #[arg(long)]
+    pub fast: bool,
 }
 
 /// Arguments for the daemon command

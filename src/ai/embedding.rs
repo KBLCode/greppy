@@ -8,15 +8,25 @@ pub struct Embedder {
 }
 
 impl Embedder {
-    /// Create a new embedder instance.
-    /// Note: This is expensive (1-3 seconds). Prefer using `get_global()` for reuse.
+    /// Create a new embedder instance with the fast model (AllMiniLML6V2).
+    /// This is ~5x faster than BGE-Base while still providing good quality.
     pub fn new() -> Result<Self> {
+        Self::with_model(EmbeddingModel::AllMiniLML6V2)
+    }
+
+    /// Create embedder with a specific model.
+    pub fn with_model(model_name: EmbeddingModel) -> Result<Self> {
         let mut options = InitOptions::default();
-        options.model_name = EmbeddingModel::BGEBaseENV15;
+        options.model_name = model_name;
         options.show_download_progress = true;
 
         let model = TextEmbedding::try_new(options)?;
         Ok(Self { model })
+    }
+
+    /// Create embedder with the high-quality model (BGE-Base, slower).
+    pub fn new_high_quality() -> Result<Self> {
+        Self::with_model(EmbeddingModel::BGEBaseENV15)
     }
 
     /// Embed a single text

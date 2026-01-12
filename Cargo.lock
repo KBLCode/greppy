@@ -1459,6 +1459,7 @@ dependencies = [
  "directories",
  "fastembed",
  "ignore",
+ "indicatif",
  "keyring",
  "libc",
  "lru",
