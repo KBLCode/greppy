@@ -13,6 +13,9 @@ async fn main() -> Result<()> {
         .with(EnvFilter::from_env("GREPPY_LOG"))
         .init();
 
+    // Print logo
+    println!("{}", include_str!("../unicodelogo.md"));
+
     let cli = Cli::parse();
 
     match cli.command {

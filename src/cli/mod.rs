@@ -10,14 +10,31 @@ pub mod logout;
 pub mod read;
 pub mod search;
 
+use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+
+fn styles() -> Styles {
+    Styles::styled()
+        .header(AnsiColor::Cyan.on_default() | Effects::BOLD)
+        .usage(AnsiColor::Cyan.on_default() | Effects::BOLD)
+        .literal(AnsiColor::Blue.on_default() | Effects::BOLD)
+        .placeholder(AnsiColor::Green.on_default())
+}
 
 /// Sub-millisecond local semantic code search
 #[derive(Parser, Debug)]
 #[command(name = "greppy")]
 #[command(author, version, about, long_about = None)]
 #[command(propagate_version = true)]
+#[command(styles = styles())]
+#[command(help_template = "\
+{before-help}{name} {version}
+{author-with-newline}{about-with-newline}
+{usage-heading}
+    {usage}
+
+{all-args}{after-help}")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
