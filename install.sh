@@ -34,7 +34,11 @@ echo "Installing greppy $VERSION for $TARGET..."
 URL="https://github.com/$REPO/releases/download/$VERSION/greppy-$TARGET.tar.gz"
 echo "Downloading from $URL..."
 
-curl -L "$URL" -o greppy.tar.gz
+if ! curl -L --fail "$URL" -o greppy.tar.gz; then
+    echo "Error: Failed to download release asset."
+    echo "The release might still be building. Please try again in a few minutes."
+    exit 1
+fi
 
 # Extract
 tar xzf greppy.tar.gz
