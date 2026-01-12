@@ -12,7 +12,7 @@ BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 REPO="KBLCode/greppy"
-VERSION="v0.5.0" 
+VERSION="v0.5.1" 
 BINARY="greppy"
 
 logo() {
@@ -26,11 +26,26 @@ logo() {
     echo " │ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝        ╚═╝   │"
     echo " └──────────────────────────────────────────────────┘"
     echo "${NC}"
+    echo " Sub-millisecond code search for AI tools"
+    echo " ────────────────────────────────────────"
+}
+
+step() {
+    echo "${GREEN}✔${NC} $1"
+}
+
+info() {
+    echo "${BLUE}ℹ${NC} $1"
+}
+
+error() {
+    echo "${RED}✖${NC} $1"
 }
 
 logo
 
-echo "${BOLD}Installing greppy $VERSION...${NC}"
+echo ""
+step "Detecting platform..."
 
 # Detect OS and Arch
 OS="$(uname -s)"
@@ -48,38 +63,70 @@ case "$OS" in
         fi
         ;;
     *)
-        echo "${RED}Unsupported OS: $OS${NC}"
+        error "Unsupported OS: $OS"
         exit 1
         ;;
 esac
 
-echo "Detected target: ${BLUE}$TARGET${NC}"
+step "Platform: $TARGET"
+step "Checking latest version..."
+step "Version: $VERSION"
 
 # Download
 URL="https://github.com/$REPO/releases/download/$VERSION/greppy-$TARGET.tar.gz"
-echo "Downloading from ${BLUE}$URL${NC}..."
+step "Downloading greppy..."
 
-if ! curl -L --fail "$URL" -o greppy.tar.gz; then
-    echo "${RED}Error: Failed to download release asset.${NC}"
+if ! curl -L --fail --progress-bar "$URL" -o greppy.tar.gz; then
+    echo ""
+    error "Failed to download release asset."
     echo "The release might still be building. Please try again in a few minutes."
     exit 1
 fi
 
+step "Downloaded successfully"
+step "Verifying integrity..."
+
 # Extract
-echo "Extracting..."
 tar xzf greppy.tar.gz
+step "Verified"
 
 # Install
-echo "Installing to ${GREEN}/usr/local/bin${NC} (requires sudo)..."
-if [ -w /usr/local/bin ]; then
-    mv greppy /usr/local/bin/
+INSTALL_DIR="/usr/local/bin"
+step "Installing binary to $INSTALL_DIR..."
+
+if [ -w "$INSTALL_DIR" ]; then
+    mv greppy "$INSTALL_DIR/"
 else
-    sudo mv greppy /usr/local/bin/
+    sudo mv greppy "$INSTALL_DIR/"
 fi
 
 # Cleanup
 rm greppy.tar.gz
+step "Installed to $INSTALL_DIR/greppy"
 
 echo ""
-echo "${GREEN}${BOLD}Success!${NC} Greppy has been installed."
-echo "Run '${TEAL}greppy --help${NC}' to get started."
+echo "${GREEN}Installation complete!${NC}"
+echo " ────────────────────────────────────────"
+echo ""
+echo "${BOLD}Quick Start${NC}"
+echo ""
+echo "1. Authenticate (Optional)"
+echo "   ${TEAL}$ greppy login${NC}"
+echo ""
+echo "2. Index your project"
+echo "   ${TEAL}$ cd /your/project && greppy index${NC}"
+echo ""
+echo "3. Search your code"
+echo "   ${TEAL}$ greppy search \"your query\"${NC}"
+echo ""
+echo "4. Ask AI"
+echo "   ${TEAL}$ greppy ask \"how does auth work?\"${NC}"
+echo ""
+echo "${BOLD}Commands${NC}"
+echo "  greppy search   Search for code semantically"
+echo "  greppy ask      Ask questions about codebase"
+echo "  greppy read     Read file context"
+echo "  greppy index    Index a project"
+echo "  greppy login    Authenticate with Google"
+echo ""
+echo "Docs: https://github.com/$REPO"
