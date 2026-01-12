@@ -13,7 +13,9 @@ AI coding tools (Claude Code, OpenCode, Cursor, Aider) need fast code search. Ex
 
 Greppy gives you **<10ms semantic search** that runs entirely on your machine.
 
-## New in v0.4.0
+## New in v0.5.0
+- **Precision Parsing**: Tree-sitter integration for Rust, Python, Go, Java, and TypeScript/JavaScript.
+- **Read Command**: Precise file reading for agents (`greppy read file:line`).
 - **Google OAuth**: Secure authentication for AI features.
 - **Semantic Search**: Local vector embeddings for understanding intent.
 - **Ask Command**: Ask natural language questions about your codebase (powered by Gemini Flash).
@@ -74,6 +76,20 @@ Options:
   -p, --project <PATH> Project path (default: current directory)
 ```
 
+### Read (Agent Tool)
+
+```bash
+greppy read <location> [options]
+
+# Examples:
+greppy read src/main.rs          # Read first 100 lines
+greppy read src/main.rs:50       # Read around line 50
+greppy read src/main.rs:10-20    # Read lines 10 to 20
+
+Options:
+  -c, --context <N>    Context lines around single line (default: 20)
+```
+
 ### Index
 
 ```bash
@@ -111,7 +127,7 @@ greppy forget <path>  # Remove a project's index
 
 ## How It Works
 
-1. **Indexing**: Greppy parses your code into chunks (functions, classes, etc.) using heuristic analysis. It also generates vector embeddings locally using `fastembed-rs`.
+1. **Indexing**: Greppy parses your code into semantic chunks using **Tree-sitter** (for supported languages) or heuristics. It also generates vector embeddings locally using `fastembed-rs`.
 2. **Search**: A hybrid approach combining BM25 (keyword) and Vector Similarity (semantic) finds the most relevant code.
 3. **Speed**: Tantivy (Rust search engine) + memory-mapped indexes + parallel processing = sub-millisecond queries.
 
