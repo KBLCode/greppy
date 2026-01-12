@@ -19,8 +19,8 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Search(args) => greppy::cli::search::run(args),
-        Commands::Index(args) => greppy::cli::index::run(args),
+        Commands::Search(args) => greppy::cli::search::run(args).await,
+        Commands::Index(args) => greppy::cli::index::run(args).await,
         Commands::Daemon(args) => greppy::cli::daemon::run(args),
         Commands::List(args) => greppy::cli::list::run(args),
         Commands::Forget(args) => greppy::cli::forget::run(args),

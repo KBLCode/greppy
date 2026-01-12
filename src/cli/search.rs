@@ -4,6 +4,7 @@ use crate::ai::embedding::Embedder;
 use crate::cli::SearchArgs;
 use crate::core::error::Result;
 use crate::core::project::Project;
+use crate::daemon::client;
 use crate::index::TantivyIndex;
 use crate::output::format_results;
 use crate::search::SearchQuery;
@@ -11,15 +12,33 @@ use std::env;
 use tracing::info;
 
 /// Run the search command
-pub fn run(args: SearchArgs) -> Result<()> {
+pub async fn run(args: SearchArgs) -> Result<()> {
     // Determine project path
     let project_path = args
         .project
+        .clone()
         .unwrap_or_else(|| env::current_dir().expect("Failed to get current directory"));
 
     // Detect project
     let project = Project::detect(&project_path)?;
     info!(project = %project.name, root = %project.root.display(), "Detected project");
+
+    // Try daemon first if requested
+    if args.use_daemon {
+        if let Ok(true) = client::is_running() {
+            match client::search(&args.query, &project.root, args.limit).await {
+                Ok(results) => {
+                    let output = format_results(&results, args.format);
+                    print!("{}", output);
+                    return Ok(());
+                }
+                Err(e) => {
+                    // Fallback to local search if daemon fails
+                    info!("Daemon search failed: {}. Falling back to local search.", e);
+                }
+            }
+        }
+    }
 
     // Open index
     let index = TantivyIndex::open(&project.root)?;
@@ -31,17 +50,8 @@ pub fn run(args: SearchArgs) -> Result<()> {
         .with_tests(args.include_tests);
 
     // Generate embedding if possible (for hybrid search)
-    // Note: This adds latency (model load + inference), so we might want to make it optional flag
-    // or only do it if the query looks like natural language.
-    // For now, let's try to do it always to demonstrate the capability,
-    // but print a message so user knows why it's slow the first time.
-    // Actually, loading the model every time is slow (~1-2s).
-    // In a real CLI, we might want a daemon or a faster model load.
-    // Let's try to load it.
-
     // Only attempt embedding if the query has spaces (likely natural language)
     if args.query.contains(' ') {
-        // info!("Generating embedding for semantic search...");
         if let Ok(embedder) = Embedder::new() {
             if let Ok(embedding) = embedder.embed(&args.query) {
                 query = query.with_embedding(embedding);

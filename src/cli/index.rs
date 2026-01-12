@@ -3,6 +3,7 @@ use crate::cli::IndexArgs;
 use crate::core::config::Config;
 use crate::core::error::Result;
 use crate::core::project::Project;
+use crate::daemon::client;
 use crate::index::{IndexWriter, TantivyIndex};
 use crate::parse::{get_parser, Chunk};
 use crossbeam_channel::{bounded, Receiver, Sender};
@@ -15,15 +16,38 @@ use std::time::Instant;
 use tracing::{debug, info, warn};
 
 /// Run the index command
-pub fn run(args: IndexArgs) -> Result<()> {
+pub async fn run(args: IndexArgs) -> Result<()> {
     // Determine project path
     let project_path = args
         .project
+        .clone()
         .unwrap_or_else(|| env::current_dir().expect("Failed to get current directory"));
 
     // Detect project
     let project = Project::detect(&project_path)?;
     info!(project = %project.name, root = %project.root.display(), "Indexing project");
+
+    // Try daemon first
+    if let Ok(true) = client::is_running() {
+        println!("Delegating indexing to daemon...");
+        match client::index(&project.root, args.force).await {
+            Ok((file_count, chunk_count, elapsed_ms)) => {
+                println!(
+                    "Indexed {} chunks from {} files in {:.2}s (via daemon)",
+                    chunk_count,
+                    file_count,
+                    elapsed_ms / 1000.0
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                warn!(
+                    "Daemon indexing failed: {}. Falling back to local indexing.",
+                    e
+                );
+            }
+        }
+    }
 
     let start = Instant::now();
 
