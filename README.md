@@ -23,16 +23,21 @@ Greppy gives you **<10ms semantic search** that runs entirely on your machine.
 
 ## Installation
 
+### Option 1: Pre-built Binaries (macOS & Linux)
+
 ```bash
-# Homebrew (macOS/Linux)
-brew install greppy
-
-# curl installer
-curl -fsSL https://greppy.dev/install.sh | sh
-
-# Cargo
-cargo install greppy
+curl -fsSL https://raw.githubusercontent.com/KBLCode/greppy/main/install.sh | sh
 ```
+
+### Option 2: From Source (Cargo)
+
+```bash
+cargo install --git https://github.com/KBLCode/greppy.git
+```
+
+### Option 3: Manual Download
+
+Download the latest release for your platform from [GitHub Releases](https://github.com/KBLCode/greppy/releases).
 
 ## Quick Start
 
