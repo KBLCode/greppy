@@ -10,7 +10,7 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use ignore::WalkBuilder;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -254,7 +254,7 @@ pub async fn run(args: IndexArgs) -> Result<()> {
 
 /// Generate embeddings in background
 fn generate_embeddings_background(
-    project_root: &PathBuf,
+    project_root: &Path,
     config: &Config,
     total_chunks: usize,
 ) -> Result<()> {
@@ -277,7 +277,7 @@ fn generate_embeddings_background(
     let (doc_tx, doc_rx): (Sender<Vec<ChunkEmbed>>, Receiver<Vec<ChunkEmbed>>) = bounded(500);
 
     // Walker
-    let walker_root = project_root.clone();
+    let walker_root = project_root.to_path_buf();
     let walker_config = config.clone();
     thread::spawn(move || {
         let walker = WalkBuilder::new(&walker_root)
