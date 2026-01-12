@@ -17,6 +17,9 @@ use std::thread::{self, JoinHandle};
 use std::time::Instant;
 use tracing::{info, warn};
 
+/// Batch size for sending chunks through channel
+const CHUNK_BATCH_SIZE: usize = 200;
+
 /// Run the index command
 pub async fn run(args: IndexArgs) -> Result<()> {
     let project_path = match args.project.clone() {
@@ -48,10 +51,6 @@ pub async fn run(args: IndexArgs) -> Result<()> {
         }
     }
 
-    // Two-phase indexing:
-    // Phase 1: Fast keyword index (immediate search)
-    // Phase 2: Background embeddings (semantic search)
-
     let start = Instant::now();
     let config = Config::load()?;
 
@@ -67,59 +66,73 @@ pub async fn run(args: IndexArgs) -> Result<()> {
 
     let mut writer = IndexWriter::new(&index)?;
 
-    // Count files
-    let file_count = WalkBuilder::new(&project.root)
-        .hidden(true)
-        .git_ignore(true)
-        .git_global(true)
-        .git_exclude(true)
-        .max_filesize(Some(config.index.max_file_size))
-        .build()
-        .flatten()
-        .filter(|e| e.path().is_file() && is_code_file(e.path()))
-        .count();
+    // Parallel file count
+    let file_count = Arc::new(AtomicUsize::new(0));
+    {
+        let fc = Arc::clone(&file_count);
+        let root = project.root.clone();
+        let cfg = config.clone();
+        WalkBuilder::new(&root)
+            .hidden(true)
+            .git_ignore(true)
+            .git_global(true)
+            .git_exclude(true)
+            .max_filesize(Some(cfg.index.max_file_size))
+            .threads(8)
+            .build_parallel()
+            .run(|| {
+                let counter = Arc::clone(&fc);
+                Box::new(move |entry| {
+                    if let Ok(e) = entry {
+                        if e.path().is_file() && is_code_file(e.path()) {
+                            counter.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                    ignore::WalkState::Continue
+                })
+            });
+    }
+    let total_files = file_count.load(Ordering::Relaxed);
+    println!("  Found {} code files", total_files);
 
-    println!("  Found {} code files", file_count);
-
-    // High-throughput channels
-    let (path_tx, path_rx): (Sender<PathBuf>, Receiver<PathBuf>) = bounded(2000);
-    let (doc_tx, doc_rx): (Sender<Chunk>, Receiver<Chunk>) = bounded(10000);
+    // High-throughput channels - send batches not individual chunks
+    let (path_tx, path_rx): (Sender<PathBuf>, Receiver<PathBuf>) = bounded(5000);
+    let (doc_tx, doc_rx): (Sender<Vec<Chunk>>, Receiver<Vec<Chunk>>) = bounded(2000);
 
     let files_processed = Arc::new(AtomicUsize::new(0));
 
-    // Walker thread
+    // Parallel walker
     let walker_root = project.root.clone();
     let walker_config = config.clone();
     let walker_tx = path_tx.clone();
     let walker_handle: JoinHandle<()> = thread::spawn(move || {
-        let walker = WalkBuilder::new(&walker_root)
+        WalkBuilder::new(&walker_root)
             .hidden(true)
             .git_ignore(true)
             .git_global(true)
             .git_exclude(true)
             .max_filesize(Some(walker_config.index.max_file_size))
-            .threads(4) // Parallel directory walking
-            .build_parallel();
-
-        walker.run(|| {
-            let tx = walker_tx.clone();
-            Box::new(move |entry| {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    if path.is_file() && is_code_file(path) {
-                        let _ = tx.send(path.to_path_buf());
+            .threads(8)
+            .build_parallel()
+            .run(|| {
+                let tx = walker_tx.clone();
+                Box::new(move |entry| {
+                    if let Ok(e) = entry {
+                        let path = e.path();
+                        if path.is_file() && is_code_file(path) {
+                            let _ = tx.send(path.to_path_buf());
+                        }
                     }
-                }
-                ignore::WalkState::Continue
-            })
-        });
+                    ignore::WalkState::Continue
+                })
+            });
     });
 
-    // Parser threads - maximize parallelism
+    // Parser threads - more workers, batch output
     let num_workers = std::thread::available_parallelism()
         .map(|n| n.get())
-        .unwrap_or(4)
-        .max(4);
+        .unwrap_or(8)
+        .max(8);
 
     let mut worker_handles: Vec<JoinHandle<()>> = Vec::with_capacity(num_workers);
 
@@ -129,6 +142,8 @@ pub async fn run(args: IndexArgs) -> Result<()> {
         let files_done = Arc::clone(&files_processed);
 
         let handle = thread::spawn(move || {
+            let mut batch = Vec::with_capacity(CHUNK_BATCH_SIZE);
+
             for path in p_rx {
                 let content = match std::fs::read_to_string(&path) {
                     Ok(c) => c,
@@ -147,12 +162,21 @@ pub async fn run(args: IndexArgs) -> Result<()> {
                     }
                 };
 
-                for chunk in chunks {
-                    if d_tx.send(chunk).is_err() {
+                batch.extend(chunks);
+
+                if batch.len() >= CHUNK_BATCH_SIZE {
+                    if d_tx.send(std::mem::take(&mut batch)).is_err() {
                         return;
                     }
+                    batch = Vec::with_capacity(CHUNK_BATCH_SIZE);
                 }
+
                 files_done.fetch_add(1, Ordering::Relaxed);
+            }
+
+            // Flush remaining
+            if !batch.is_empty() {
+                let _ = d_tx.send(batch);
             }
         });
         worker_handles.push(handle);
@@ -162,7 +186,7 @@ pub async fn run(args: IndexArgs) -> Result<()> {
     drop(doc_tx);
 
     // Progress bar
-    let pb = ProgressBar::new(file_count as u64);
+    let pb = ProgressBar::new(total_files as u64);
     pb.set_style(
         ProgressStyle::default_bar()
             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} files ({per_sec})")
@@ -173,9 +197,12 @@ pub async fn run(args: IndexArgs) -> Result<()> {
     let mut chunk_count = 0;
     let mut last_files = 0;
 
-    for chunk in doc_rx {
-        writer.add_chunk(&chunk, None)?;
-        chunk_count += 1;
+    // Receive batches
+    for batch in doc_rx {
+        for chunk in batch {
+            writer.add_chunk(&chunk, None)?;
+            chunk_count += 1;
+        }
 
         let current_files = files_processed.load(Ordering::Relaxed);
         if current_files > last_files {
@@ -247,9 +274,7 @@ fn generate_embeddings_background(
 
     let (path_tx, path_rx): (Sender<PathBuf>, Receiver<PathBuf>) = bounded(1000);
     type ChunkEmbed = (Chunk, Vec<f32>);
-    let (doc_tx, doc_rx): (Sender<ChunkEmbed>, Receiver<ChunkEmbed>) = bounded(2000);
-
-    let chunks_embedded = Arc::new(AtomicUsize::new(0));
+    let (doc_tx, doc_rx): (Sender<Vec<ChunkEmbed>>, Receiver<Vec<ChunkEmbed>>) = bounded(500);
 
     // Walker
     let walker_root = project_root.clone();
@@ -272,7 +297,7 @@ fn generate_embeddings_background(
         }
     });
 
-    // Embedding workers - use more workers with larger batches
+    // Embedding workers
     let num_workers = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
@@ -282,10 +307,9 @@ fn generate_embeddings_background(
         let p_rx = path_rx.clone();
         let d_tx = doc_tx.clone();
         let emb = Arc::clone(&embedder);
-        let counter = Arc::clone(&chunks_embedded);
 
         thread::spawn(move || {
-            const BATCH_SIZE: usize = 128; // Larger batches = better throughput
+            const BATCH_SIZE: usize = 128;
 
             for path in p_rx {
                 let content = match std::fs::read_to_string(&path) {
@@ -313,20 +337,18 @@ fn generate_embeddings_background(
 
                     if batch_chunks.len() >= BATCH_SIZE {
                         if let Ok(embeddings) = emb.embed_batch(std::mem::take(&mut batch_texts)) {
-                            for (c, e) in batch_chunks.drain(..).zip(embeddings) {
-                                counter.fetch_add(1, Ordering::Relaxed);
-                                let _ = d_tx.send((c, e));
-                            }
+                            let batch: Vec<ChunkEmbed> =
+                                batch_chunks.drain(..).zip(embeddings).collect();
+                            let _ = d_tx.send(batch);
                         }
                     }
                 }
 
                 if !batch_chunks.is_empty() {
                     if let Ok(embeddings) = emb.embed_batch(batch_texts) {
-                        for (c, e) in batch_chunks.into_iter().zip(embeddings) {
-                            counter.fetch_add(1, Ordering::Relaxed);
-                            let _ = d_tx.send((c, e));
-                        }
+                        let batch: Vec<ChunkEmbed> =
+                            batch_chunks.into_iter().zip(embeddings).collect();
+                        let _ = d_tx.send(batch);
                     }
                 }
             }
@@ -340,9 +362,11 @@ fn generate_embeddings_background(
     let mut count = 0;
     let mut last_report = Instant::now();
 
-    for (chunk, embedding) in doc_rx {
-        writer.add_chunk(&chunk, Some(&embedding))?;
-        count += 1;
+    for batch in doc_rx {
+        for (chunk, embedding) in batch {
+            writer.add_chunk(&chunk, Some(&embedding))?;
+            count += 1;
+        }
 
         if last_report.elapsed().as_secs() >= 5 {
             let pct = (count as f64 / total_chunks as f64 * 100.0).min(100.0);
