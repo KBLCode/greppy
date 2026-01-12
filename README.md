@@ -49,13 +49,15 @@ It runs a background daemon that keeps your codebase indexed in memory, allowing
 
 ## 📦 Installation
 
-### One-line Installer (macOS/Linux)
+### macOS (One-line Installer)
 ```bash
-curl -fsSL https://raw.githubusercontent.com/greppy/greppy/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/KBLCode/greppy/main/install.sh | bash
 ```
 
-### Windows
-Download the latest `.zip` from [Releases](https://github.com/greppy/greppy/releases) and add to your PATH.
+### Windows (PowerShell)
+```powershell
+irm https://raw.githubusercontent.com/KBLCode/greppy/main/install.ps1 | iex
+```
 
 ### From Source (Rust)
 ```bash
@@ -120,7 +122,7 @@ Greppy uses a modern search stack:
 1.  **Parser**: `Tree-sitter` parses code into structural chunks (functions, classes).
 2.  **Embedder**: `FastEmbed` (ONNX Runtime) generates 384-dimensional vectors locally.
 3.  **Indexer**: `Tantivy` (Rust's Lucene alternative) stores vectors and text.
-4.  **Daemon**: A `Tokio`-based server holds `IndexReaders` in memory and handles IPC via Unix sockets (macOS/Linux) or TCP (Windows).
+4.  **Daemon**: A `Tokio`-based server holds `IndexReaders` in memory and handles IPC via Unix sockets (macOS) or TCP (Windows).
 
 ## 🤝 Contributing
 
@@ -132,4 +134,4 @@ We love contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details
 
 ## 📄 License
 
-MIT © [Greppy Contributors](https://github.com/greppy)
+MIT © [Greppy Contributors](https://github.com/KBLCode/greppy)

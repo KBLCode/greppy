@@ -52,9 +52,6 @@ OS="$(uname -s)"
 ARCH="$(uname -m)"
 
 case "$OS" in
-    Linux)
-        TARGET="x86_64-unknown-linux-gnu"
-        ;;
     Darwin)
         if [ "$ARCH" = "arm64" ]; then
             TARGET="aarch64-apple-darwin"
@@ -64,6 +61,8 @@ case "$OS" in
         ;;
     *)
         error "Unsupported OS: $OS"
+        error "This installer only supports macOS."
+        error "For Windows, download from: https://github.com/KBLCode/greppy/releases"
         exit 1
         ;;
 esac
