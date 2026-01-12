@@ -63,6 +63,7 @@ tree-sitter-typescript = "0.20"
 tree-sitter-javascript = "0.20"
 tree-sitter-go = "0.20"
 tree-sitter-java = "0.20"
+libc = "0.2.180"
 
 [dev-dependencies]
 tempfile = "3"

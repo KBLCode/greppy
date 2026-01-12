@@ -200,6 +200,12 @@ impl Config {
         let home = Self::greppy_home()?;
         Ok(home.join("daemon.sock"))
     }
+
+    /// Get the daemon PID file path
+    pub fn pid_path() -> Result<PathBuf> {
+        let home = Self::greppy_home()?;
+        Ok(home.join("daemon.pid"))
+    }
 }
 
 pub const MAX_FILE_SIZE: u64 = 1_048_576; // 1MB

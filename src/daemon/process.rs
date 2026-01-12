@@ -1,5 +1,7 @@
-use crate::config::Config;
-use crate::error::{GreppyError, Result};
+use crate::core::config::Config;
+use crate::core::error::{Error, Result};
+#[cfg(unix)]
+use libc;
 use std::process::{Command, Stdio};
 
 /// Check if daemon is running
@@ -19,14 +21,14 @@ pub fn is_running() -> Result<bool> {
     // Check if process exists
     #[cfg(unix)]
     {
-        use std::os::unix::process::CommandExt;
         let result = unsafe { libc::kill(pid as i32, 0) };
         Ok(result == 0)
     }
 
     #[cfg(not(unix))]
     {
-        Ok(false)
+        // TODO: Windows implementation
+        Ok(true) // Assume running if PID file exists on Windows for now
     }
 }
 
@@ -51,7 +53,7 @@ pub fn get_pid() -> Result<Option<u32>> {
 pub fn start_daemon() -> Result<u32> {
     if is_running()? {
         if let Some(pid) = get_pid()? {
-            return Err(GreppyError::DaemonAlreadyRunning(pid));
+            return Err(Error::DaemonAlreadyRunning(pid));
         }
     }
 
@@ -61,6 +63,7 @@ pub fn start_daemon() -> Result<u32> {
     let exe = std::env::current_exe()?;
 
     // Spawn daemon process
+    // We use a hidden subcommand "__daemon" to start the server
     let child = Command::new(&exe)
         .arg("__daemon")
         .stdin(Stdio::null())
@@ -92,6 +95,11 @@ pub fn stop_daemon() -> Result<bool> {
         unsafe {
             libc::kill(pid as i32, libc::SIGTERM);
         }
+    }
+
+    #[cfg(not(unix))]
+    {
+        // TODO: Windows implementation
     }
 
     // Clean up files

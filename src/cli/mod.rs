@@ -68,6 +68,10 @@ pub enum Commands {
 
     /// Read a file or specific lines
     Read(read::ReadArgs),
+
+    /// Internal command to run the daemon server
+    #[command(hide = true, name = "__daemon")]
+    __Daemon,
 }
 
 /// Arguments for the search command

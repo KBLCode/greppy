@@ -1,9 +1,8 @@
 //! Daemon command implementation
 
 use crate::cli::{DaemonAction, DaemonArgs};
-use crate::core::config::Config;
 use crate::core::error::Result;
-use crate::daemon::client;
+use crate::daemon::process;
 
 /// Run the daemon command
 pub fn run(args: DaemonArgs) -> Result<()> {
@@ -19,28 +18,51 @@ pub fn run(args: DaemonArgs) -> Result<()> {
 }
 
 fn start_daemon() -> Result<()> {
-    // TODO: Implement daemon start
-    println!("Daemon mode not yet implemented.");
-    println!("Use direct mode: greppy search \"query\"");
-    Ok(())
+    match process::start_daemon() {
+        Ok(pid) => {
+            println!("Daemon started (PID: {})", pid);
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Failed to start daemon: {}", e);
+            Err(e)
+        }
+    }
 }
 
 fn stop_daemon() -> Result<()> {
-    let socket_path = Config::socket_path()?;
-    if socket_path.exists() {
-        std::fs::remove_file(&socket_path)?;
-        println!("Daemon stopped.");
-    } else {
-        println!("Daemon is not running.");
+    match process::stop_daemon() {
+        Ok(true) => {
+            println!("Daemon stopped.");
+            Ok(())
+        }
+        Ok(false) => {
+            println!("Daemon is not running.");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Failed to stop daemon: {}", e);
+            Err(e)
+        }
     }
-    Ok(())
 }
 
 fn check_status() -> Result<()> {
-    if client::is_running()? {
-        println!("Daemon is running.");
-    } else {
-        println!("Daemon is not running.");
+    match process::is_running() {
+        Ok(true) => {
+            if let Ok(Some(pid)) = process::get_pid() {
+                println!("Daemon is running (PID: {}).", pid);
+            } else {
+                println!("Daemon is running.");
+            }
+        }
+        Ok(false) => {
+            println!("Daemon is not running.");
+        }
+        Err(e) => {
+            eprintln!("Error checking status: {}", e);
+            return Err(e);
+        }
     }
     Ok(())
 }

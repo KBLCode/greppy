@@ -33,6 +33,9 @@ pub enum Error {
     #[error("Daemon not running")]
     DaemonNotRunning,
 
+    #[error("Daemon already running (PID: {0})")]
+    DaemonAlreadyRunning(u32),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
