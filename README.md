@@ -15,9 +15,8 @@
 
 **Sub-millisecond local semantic code search.**
 
-[![Crates.io](https://img.shields.io/crates/v/greppy.svg)](https://crates.io/crates/greppy)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Downloads](https://img.shields.io/crates/d/greppy.svg)](https://crates.io/crates/greppy)
+[![CI](https://github.com/KBLCode/greppy/actions/workflows/ci.yml/badge.svg)](https://github.com/KBLCode/greppy/actions/workflows/ci.yml)
 
 </div>
 
