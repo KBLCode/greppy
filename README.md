@@ -46,7 +46,7 @@ It runs a background daemon that keeps your codebase indexed in memory, allowing
 - **🔒 Local & Private**: No code leaves your machine. Embeddings are generated locally using `FastEmbed`.
 - **🤖 AI-Ready**: Outputs machine-readable formats (JSON) perfect for LLM context windows.
 - **⚡️ Blazing Fast**: Built in Rust, using `Tantivy` for indexing and `Tokio` for async I/O.
-- **🔄 Auto-Indexing**: Watches your project for changes and updates the index in real-time (coming soon).
+- **🔄 Auto-Indexing**: Watches your project for changes and updates the index in real-time.
 
 ## 📦 Installation
 
@@ -54,6 +54,9 @@ It runs a background daemon that keeps your codebase indexed in memory, allowing
 ```bash
 curl -fsSL https://raw.githubusercontent.com/greppy/greppy/main/install.sh | bash
 ```
+
+### Windows
+Download the latest `.zip` from [Releases](https://github.com/greppy/greppy/releases) and add to your PATH.
 
 ### From Source (Rust)
 ```bash
@@ -72,6 +75,12 @@ greppy daemon start
 Run this in your project root. It parses code, generates embeddings, and builds the index.
 ```bash
 greppy index
+```
+
+### 2b. Watch Mode (Auto Re-index)
+Keep the index updated as you edit files:
+```bash
+greppy index --watch
 ```
 
 ### 3. Search
@@ -112,7 +121,7 @@ Greppy uses a modern search stack:
 1.  **Parser**: `Tree-sitter` parses code into structural chunks (functions, classes).
 2.  **Embedder**: `FastEmbed` (ONNX Runtime) generates 384-dimensional vectors locally.
 3.  **Indexer**: `Tantivy` (Rust's Lucene alternative) stores vectors and text.
-4.  **Daemon**: A `Tokio`-based server holds `IndexReaders` in memory and handles IPC via Unix sockets.
+4.  **Daemon**: A `Tokio`-based server holds `IndexReaders` in memory and handles IPC via Unix sockets (macOS/Linux) or TCP (Windows).
 
 ## 🤝 Contributing
 

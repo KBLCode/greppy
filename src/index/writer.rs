@@ -2,7 +2,7 @@ use crate::core::error::{Error, Result};
 use crate::index::schema::IndexSchema;
 use crate::index::tantivy_index::TantivyIndex;
 use crate::parse::Chunk;
-use tantivy::{doc, IndexWriter as TantivyWriter};
+use tantivy::{doc, IndexWriter as TantivyWriter, Term};
 
 const WRITER_HEAP_SIZE: usize = 50_000_000; // 50MB
 
@@ -55,6 +55,13 @@ impl IndexWriter {
         }
 
         self.writer.add_document(doc)?;
+        Ok(())
+    }
+
+    /// Delete all documents with the given file path
+    pub fn delete_by_path(&mut self, path: &str) -> Result<()> {
+        let term = Term::from_field_text(self.schema.path, path);
+        self.writer.delete_term(term);
         Ok(())
     }
 

@@ -4,6 +4,7 @@ use crate::core::error::Result;
 use crate::core::project::{Project, ProjectEntry, Registry};
 use crate::daemon::cache::QueryCache;
 use crate::daemon::protocol::{Method, ProjectInfo, Request, Response, ResponseResult};
+use crate::daemon::watcher::{spawn_reindex_worker, FileWatcher, ReindexRequest};
 use crate::index::{IndexSearcher, IndexWriter, TantivyIndex};
 use crate::parse::{chunk_file, walk_project};
 use crate::search::SearchResponse;
@@ -13,8 +14,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::broadcast;
 use tokio::sync::OnceCell;
+use tokio::sync::{broadcast, mpsc};
+use tracing::info;
 
 #[cfg(unix)]
 use tokio::net::UnixListener;
@@ -22,23 +24,39 @@ use tokio::net::UnixListener;
 #[cfg(windows)]
 use tokio::net::TcpListener;
 
+/// Channel buffer size for reindex requests
+const REINDEX_CHANNEL_SIZE: usize = 100;
+
 pub struct DaemonState {
     pub registry: RwLock<Registry>,
     pub searchers: RwLock<HashMap<String, IndexSearcher>>,
     pub cache: RwLock<QueryCache>,
     pub shutdown: broadcast::Sender<()>,
     pub embedder: Arc<OnceCell<Arc<Embedder>>>,
+    pub file_watcher: Arc<FileWatcher>,
+    #[allow(dead_code)]
+    reindex_tx: mpsc::Sender<ReindexRequest>,
 }
 
 impl DaemonState {
     pub fn new() -> Self {
         let (shutdown, _) = broadcast::channel(1);
+        let (reindex_tx, reindex_rx) = mpsc::channel(REINDEX_CHANNEL_SIZE);
+        let file_watcher = Arc::new(FileWatcher::new(reindex_tx.clone()));
+
+        // Spawn reindex worker (embedder will be set later when first needed)
+        tokio::spawn(async move {
+            let _ = spawn_reindex_worker(reindex_rx, None).await;
+        });
+
         Self {
             registry: RwLock::new(Registry::load().unwrap_or_default()),
             searchers: RwLock::new(HashMap::new()),
             cache: RwLock::new(QueryCache::new()),
             shutdown,
             embedder: Arc::new(OnceCell::new()),
+            file_watcher,
+            reindex_tx,
         }
     }
 }
@@ -475,15 +493,22 @@ async fn handle_index_watch(project_path: &str, state: &DaemonState) -> Response
     // First index
     let result = handle_index(project_path, false, state).await;
 
+    // Start file watcher
+    let path = PathBuf::from(project_path);
+    if let Err(e) = state.file_watcher.watch(&path) {
+        return ResponseResult::Error {
+            message: format!("Failed to start file watcher: {}", e),
+        };
+    }
+
     // Mark as watching
     {
-        let path = PathBuf::from(project_path);
         let mut registry = state.registry.write();
         registry.set_watching(&path, true);
         let _ = registry.save();
     }
 
-    // TODO: Start file watcher
+    info!("Started watching project: {}", project_path);
 
     result
 }
@@ -526,6 +551,9 @@ fn handle_list(state: &DaemonState) -> ResponseResult {
 
 async fn handle_forget(project_path: &str, state: &DaemonState) -> ResponseResult {
     let path = PathBuf::from(project_path);
+
+    // Stop file watcher if active
+    state.file_watcher.unwatch(&path);
 
     // Remove from registry
     {
