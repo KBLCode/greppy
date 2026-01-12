@@ -206,7 +206,26 @@ impl Config {
         let home = Self::greppy_home()?;
         Ok(home.join("daemon.pid"))
     }
+
+    /// Get the daemon port (Windows only - uses TCP instead of Unix sockets)
+    /// Can be overridden with GREPPY_DAEMON_PORT environment variable
+    pub fn daemon_port() -> u16 {
+        std::env::var("GREPPY_DAEMON_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(DEFAULT_DAEMON_PORT)
+    }
+
+    /// Get the daemon port file path (Windows - stores which port daemon is using)
+    pub fn port_path() -> Result<PathBuf> {
+        let home = Self::greppy_home()?;
+        Ok(home.join("daemon.port"))
+    }
 }
+
+/// Default daemon port for Windows TCP connection
+/// Using an uncommon port to avoid conflicts
+pub const DEFAULT_DAEMON_PORT: u16 = 19532;
 
 pub const MAX_FILE_SIZE: u64 = 1_048_576; // 1MB
 pub const CHUNK_MAX_LINES: usize = 50;

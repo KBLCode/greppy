@@ -53,4 +53,10 @@ pub enum Error {
 
     #[error("Auth error: {0}")]
     Auth(#[from] anyhow::Error),
+
+    #[error("Embedding error: {message}")]
+    EmbeddingError { message: String },
+
+    #[error("Timeout: {message}")]
+    Timeout { message: String },
 }

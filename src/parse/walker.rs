@@ -44,7 +44,7 @@ pub fn walk_project(root: &Path) -> Result<Vec<FileInfo>> {
 }
 
 /// Check if file is a code file worth indexing
-fn is_code_file(path: &Path) -> bool {
+pub fn is_code_file(path: &Path) -> bool {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())

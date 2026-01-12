@@ -1,23 +1,25 @@
 //! Search command implementation
 
-use crate::ai::embedding::Embedder;
+use crate::ai::embedding::get_global_embedder;
 use crate::cli::SearchArgs;
-use crate::core::error::Result;
+use crate::core::error::{Error, Result};
 use crate::core::project::Project;
 use crate::daemon::client;
 use crate::index::TantivyIndex;
 use crate::output::format_results;
 use crate::search::SearchQuery;
 use std::env;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 /// Run the search command
 pub async fn run(args: SearchArgs) -> Result<()> {
     // Determine project path
-    let project_path = args
-        .project
-        .clone()
-        .unwrap_or_else(|| env::current_dir().expect("Failed to get current directory"));
+    let project_path = match args.project.clone() {
+        Some(p) => p,
+        None => env::current_dir().map_err(|e| Error::IoError {
+            message: format!("Failed to get current directory: {}", e),
+        })?,
+    };
 
     // Detect project
     let project = Project::detect(&project_path)?;
@@ -34,7 +36,7 @@ pub async fn run(args: SearchArgs) -> Result<()> {
                 }
                 Err(e) => {
                     // Fallback to local search if daemon fails
-                    info!("Daemon search failed: {}. Falling back to local search.", e);
+                    warn!("Daemon search failed: {}. Falling back to local search.", e);
                 }
             }
         }
@@ -52,10 +54,19 @@ pub async fn run(args: SearchArgs) -> Result<()> {
     // Generate embedding if possible (for hybrid search)
     // Only attempt embedding if the query has spaces (likely natural language)
     if args.query.contains(' ') {
-        if let Ok(embedder) = Embedder::new() {
-            if let Ok(embedding) = embedder.embed(&args.query) {
-                query = query.with_embedding(embedding);
+        // Use global embedder to avoid re-initialization on every search
+        if let Some(embedder) = get_global_embedder() {
+            match embedder.embed(&args.query) {
+                Ok(embedding) => {
+                    debug!("Generated embedding for semantic search");
+                    query = query.with_embedding(embedding);
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to generate embedding, using keyword search only");
+                }
             }
+        } else {
+            debug!("Embedder not available, using keyword search only");
         }
     }
 

@@ -25,6 +25,9 @@ jobs:
           - build: macos-arm
             os: macos-latest
             target: aarch64-apple-darwin
+          - build: windows
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
 
     steps:
       - name: Checkout
@@ -38,15 +41,30 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package
+      - name: Package (Unix)
+        if: matrix.build != 'windows'
         shell: bash
         run: |
           cd target/${{ matrix.target }}/release
           tar czvf ../../../greppy-${{ matrix.target }}.tar.gz greppy
           cd -
 
-      - name: Upload Release Asset
+      - name: Package (Windows)
+        if: matrix.build == 'windows'
+        shell: pwsh
+        run: |
+          cd target/${{ matrix.target }}/release
+          Compress-Archive -Path greppy.exe -DestinationPath ../../../greppy-${{ matrix.target }}.zip
+          cd -
+
+      - name: Upload Release Asset (Unix)
         uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') && matrix.build != 'windows'
         with:
           files: greppy-${{ matrix.target }}.tar.gz
+
+      - name: Upload Release Asset (Windows)
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/') && matrix.build == 'windows'
+        with:
+          files: greppy-${{ matrix.target }}.zip

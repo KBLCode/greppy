@@ -4,6 +4,13 @@ use crate::core::error::{Error, Result};
 use libc;
 use std::process::{Command, Stdio};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+/// Windows: CREATE_NO_WINDOW flag to prevent console window from appearing
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 /// Check if daemon is running
 pub fn is_running() -> Result<bool> {
     let pid_path = Config::pid_path()?;
@@ -25,10 +32,22 @@ pub fn is_running() -> Result<bool> {
         Ok(result == 0)
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        // TODO: Windows implementation
-        Ok(true) // Assume running if PID file exists on Windows for now
+        // Use tasklist to check if PID exists
+        let output = Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid), "/NH", "/FO", "CSV"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        match output {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                // tasklist returns the process info if found, or "INFO: No tasks" if not
+                Ok(stdout.contains(&pid.to_string()) && !stdout.contains("No tasks"))
+            }
+            Err(_) => Ok(false),
+        }
     }
 }
 
@@ -64,11 +83,21 @@ pub fn start_daemon() -> Result<u32> {
 
     // Spawn daemon process
     // We use a hidden subcommand "__daemon" to start the server
+    #[cfg(unix)]
     let child = Command::new(&exe)
         .arg("__daemon")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
+        .spawn()?;
+
+    #[cfg(windows)]
+    let child = Command::new(&exe)
+        .arg("__daemon")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn()?;
 
     let pid = child.id();
@@ -97,20 +126,37 @@ pub fn stop_daemon() -> Result<bool> {
         }
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        // TODO: Windows implementation
+        // Use taskkill to terminate process
+        let _ = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
     }
 
     // Clean up files
     let pid_path = Config::pid_path()?;
-    let socket_path = Config::socket_path()?;
 
     if pid_path.exists() {
         let _ = std::fs::remove_file(&pid_path);
     }
-    if socket_path.exists() {
-        let _ = std::fs::remove_file(&socket_path);
+
+    // Platform-specific cleanup
+    #[cfg(unix)]
+    {
+        let socket_path = Config::socket_path()?;
+        if socket_path.exists() {
+            let _ = std::fs::remove_file(&socket_path);
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        let port_path = Config::port_path()?;
+        if port_path.exists() {
+            let _ = std::fs::remove_file(&port_path);
+        }
     }
 
     Ok(true)

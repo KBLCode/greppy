@@ -51,7 +51,7 @@ impl IndexWriter {
             // Since we defined it as bytes in schema for now (as a placeholder/storage),
             // we serialize it.
             let bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
-            doc.add_field_value(self.schema.embedding, bytes);
+            doc.add_field_value(self.schema.embedding, &bytes);
         }
 
         self.writer.add_document(doc)?;

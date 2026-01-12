@@ -15,7 +15,7 @@ categories = ["command-line-utilities", "development-tools"]
 clap = { version = "4", features = ["derive"] }
 
 # Search engine
-tantivy = "0.22"
+tantivy = "0.25"
 
 # Async runtime
 tokio = { version = "1", features = ["full", "net", "sync", "io-util", "fs", "signal"] }

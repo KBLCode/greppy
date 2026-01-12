@@ -12,11 +12,15 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::broadcast;
-
 use tokio::sync::OnceCell;
+
+#[cfg(unix)]
+use tokio::net::UnixListener;
+
+#[cfg(windows)]
+use tokio::net::TcpListener;
 
 pub struct DaemonState {
     pub registry: RwLock<Registry>,
@@ -39,7 +43,8 @@ impl DaemonState {
     }
 }
 
-/// Run the daemon server
+/// Run the daemon server (Unix implementation using Unix sockets)
+#[cfg(unix)]
 pub async fn run_server() -> Result<()> {
     let socket_path = Config::socket_path()?;
 
@@ -84,8 +89,65 @@ pub async fn run_server() -> Result<()> {
     Ok(())
 }
 
-async fn handle_connection(stream: UnixStream, state: Arc<DaemonState>) -> Result<()> {
-    let (reader, mut writer) = stream.into_split();
+/// Run the daemon server (Windows implementation using TCP on localhost)
+#[cfg(windows)]
+pub async fn run_server() -> Result<()> {
+    let port = Config::daemon_port();
+    let addr = format!("127.0.0.1:{}", port);
+
+    let listener =
+        TcpListener::bind(&addr)
+            .await
+            .map_err(|e| crate::core::error::Error::DaemonError {
+                message: format!("Failed to bind to {}: {}", addr, e),
+            })?;
+
+    // Write port to file so clients know which port to connect to
+    let port_path = Config::port_path()?;
+    std::fs::write(&port_path, port.to_string())?;
+
+    let state = Arc::new(DaemonState::new());
+    let mut shutdown_rx = state.shutdown.subscribe();
+
+    println!("Daemon listening on {}", addr);
+
+    loop {
+        tokio::select! {
+            result = listener.accept() => {
+                match result {
+                    Ok((stream, _)) => {
+                        let state = Arc::clone(&state);
+                        tokio::spawn(async move {
+                            if let Err(e) = handle_connection(stream, state).await {
+                                eprintln!("Connection error: {}", e);
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        eprintln!("Accept error: {}", e);
+                    }
+                }
+            }
+            _ = shutdown_rx.recv() => {
+                break;
+            }
+        }
+    }
+
+    // Cleanup: remove port file
+    if port_path.exists() {
+        let _ = std::fs::remove_file(&port_path);
+    }
+
+    Ok(())
+}
+
+/// Handle a connection from any stream type (Unix socket or TCP)
+async fn handle_connection<S>(stream: S, state: Arc<DaemonState>) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let (reader, mut writer) = tokio::io::split(stream);
     let mut reader = BufReader::new(reader);
     let mut line = String::new();
 
@@ -337,10 +399,9 @@ async fn do_index(
                                     let _ = d_tx.send((c, e));
                                 }
                             } else {
-                                // Fallback if embedding fails
-                                for c in batch_chunks.drain(..) {
-                                    // Skip embedding if it fails
-                                }
+                                // Fallback if embedding fails - just clear the batch
+                                // Chunks without embeddings are skipped (semantic search won't work for them)
+                                batch_chunks.clear();
                             }
                             batch_texts.clear();
                         }
