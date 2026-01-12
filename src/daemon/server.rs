@@ -16,11 +16,14 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::broadcast;
 
+use tokio::sync::OnceCell;
+
 pub struct DaemonState {
     pub registry: RwLock<Registry>,
     pub searchers: RwLock<HashMap<String, IndexSearcher>>,
     pub cache: RwLock<QueryCache>,
     pub shutdown: broadcast::Sender<()>,
+    pub embedder: Arc<OnceCell<Arc<Embedder>>>,
 }
 
 impl DaemonState {
@@ -31,6 +34,7 @@ impl DaemonState {
             searchers: RwLock::new(HashMap::new()),
             cache: RwLock::new(QueryCache::new()),
             shutdown,
+            embedder: Arc::new(OnceCell::new()),
         }
     }
 }
@@ -245,91 +249,132 @@ async fn handle_index(project_path: &str, force: bool, state: &DaemonState) -> R
     }
 }
 
+use crossbeam_channel::{bounded, Receiver, Sender};
+use std::thread;
+
 async fn do_index(
     path: &PathBuf,
     _force: bool,
     state: &DaemonState,
 ) -> Result<(usize, usize, f64)> {
     let start = Instant::now();
+    let path_clone = path.clone();
 
-    // Walk and chunk files
-    let files = walk_project(path)?;
-    let file_count = files.len();
+    // Get or initialize embedder
+    let embedder = state
+        .embedder
+        .get_or_try_init(|| async {
+            println!("Initializing embedding model (once)...");
+            let emb = Embedder::new()?;
+            println!("Model initialized.");
+            Ok::<Arc<Embedder>, anyhow::Error>(Arc::new(emb))
+        })
+        .await
+        .map_err(|e| crate::core::error::Error::DaemonError {
+            message: format!("Failed to load embedding model: {}", e),
+        })?
+        .clone();
 
-    let index = TantivyIndex::open_or_create(path)?;
-    let mut writer = IndexWriter::new(&index)?;
-    let mut chunk_count = 0;
+    // Offload heavy indexing work to a blocking thread
+    let (file_count, chunk_count) = tokio::task::spawn_blocking(move || {
+        // Walk and chunk files
+        let files = walk_project(&path_clone)?;
+        let file_count = files.len();
 
-    // Initialize Embedder
-    // Note: In daemon mode, we might want to keep this loaded in DaemonState
-    // but for now, let's load it here. It's heavy but safe.
-    let embedder = Embedder::new().ok();
+        let index = TantivyIndex::open_or_create(&path_clone)?;
+        let mut writer = IndexWriter::new(&index)?;
+        let mut chunk_count = 0;
 
-    for file in &files {
-        let chunks = chunk_file(&file.path, &file.content);
+        // Channels for pipeline
+        let (path_tx, path_rx): (
+            Sender<crate::parse::walker::FileInfo>,
+            Receiver<crate::parse::walker::FileInfo>,
+        ) = bounded(1000);
+        let (doc_tx, doc_rx): (
+            Sender<(crate::parse::Chunk, Vec<f32>)>,
+            Receiver<(crate::parse::Chunk, Vec<f32>)>,
+        ) = bounded(1000);
 
-        let mut batch_chunks = Vec::new();
-        let mut batch_texts = Vec::new();
+        // Spawn Feeder Thread
+        let files_to_feed = files;
+        let feeder_tx = path_tx.clone();
+        thread::spawn(move || {
+            for file in files_to_feed {
+                let _ = feeder_tx.send(file);
+            }
+        });
 
-        for chunk in chunks {
-            let text_to_embed = format!(
-                "{}: {}",
-                chunk.symbol_name.as_deref().unwrap_or("code"),
-                chunk.content
-            );
+        // Spawn Worker Threads
+        let num_workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
 
-            batch_chunks.push(chunk);
-            batch_texts.push(text_to_embed);
+        for _ in 0..num_workers {
+            let p_rx = path_rx.clone();
+            let d_tx = doc_tx.clone();
+            let emb = Arc::clone(&embedder);
 
-            if batch_chunks.len() >= 32 {
-                if let Some(emb) = &embedder {
-                    if let Ok(embeddings) = emb.embed_batch(batch_texts.clone()) {
-                        for (c, e) in batch_chunks.drain(..).zip(embeddings) {
-                            writer.add_chunk(&c, Some(&e))?;
-                            chunk_count += 1;
-                        }
-                    } else {
-                        // Fallback if embedding fails
-                        for c in batch_chunks.drain(..) {
-                            writer.add_chunk(&c, None)?;
-                            chunk_count += 1;
+            thread::spawn(move || {
+                for file in p_rx {
+                    let chunks = chunk_file(&file.path, &file.content);
+
+                    let mut batch_chunks = Vec::new();
+                    let mut batch_texts = Vec::new();
+
+                    for chunk in chunks {
+                        let text_to_embed = format!(
+                            "{}: {}",
+                            chunk.symbol_name.as_deref().unwrap_or("code"),
+                            chunk.content
+                        );
+
+                        batch_chunks.push(chunk);
+                        batch_texts.push(text_to_embed);
+
+                        if batch_chunks.len() >= 64 {
+                            if let Ok(embeddings) = emb.embed_batch(batch_texts.clone()) {
+                                for (c, e) in batch_chunks.drain(..).zip(embeddings) {
+                                    let _ = d_tx.send((c, e));
+                                }
+                            } else {
+                                // Fallback if embedding fails
+                                for c in batch_chunks.drain(..) {
+                                    // Skip embedding if it fails
+                                }
+                            }
+                            batch_texts.clear();
                         }
                     }
-                } else {
-                    // No embedder
-                    for c in batch_chunks.drain(..) {
-                        writer.add_chunk(&c, None)?;
-                        chunk_count += 1;
+
+                    // Flush remaining
+                    if !batch_chunks.is_empty() {
+                        if let Ok(embeddings) = emb.embed_batch(batch_texts) {
+                            for (c, e) in batch_chunks.into_iter().zip(embeddings) {
+                                let _ = d_tx.send((c, e));
+                            }
+                        }
                     }
                 }
-                batch_texts.clear();
-            }
+            });
         }
 
-        // Flush remaining
-        if !batch_chunks.is_empty() {
-            if let Some(emb) = &embedder {
-                if let Ok(embeddings) = emb.embed_batch(batch_texts) {
-                    for (c, e) in batch_chunks.into_iter().zip(embeddings) {
-                        writer.add_chunk(&c, Some(&e))?;
-                        chunk_count += 1;
-                    }
-                } else {
-                    for c in batch_chunks {
-                        writer.add_chunk(&c, None)?;
-                        chunk_count += 1;
-                    }
-                }
-            } else {
-                for c in batch_chunks {
-                    writer.add_chunk(&c, None)?;
-                    chunk_count += 1;
-                }
-            }
-        }
-    }
+        // Drop original senders to close channel when workers are done
+        drop(path_tx);
+        drop(doc_tx);
 
-    writer.commit()?;
+        // Main Thread: Write to Index
+        for (chunk, embedding) in doc_rx {
+            writer.add_chunk(&chunk, Some(&embedding))?;
+            chunk_count += 1;
+        }
+
+        writer.commit()?;
+        Ok::<(usize, usize), crate::core::error::Error>((file_count, chunk_count))
+    })
+    .await
+    .map_err(|e| crate::core::error::Error::DaemonError {
+        message: format!("Indexing task failed: {}", e),
+    })??;
 
     let elapsed = start.elapsed();
 

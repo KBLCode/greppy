@@ -11,6 +11,11 @@ impl Embedder {
         options.model_name = EmbeddingModel::BGEBaseENV15;
         options.show_download_progress = true;
 
+        // Enable quantization if available (faster inference)
+        // Note: fastembed-rs might not expose quantization flags directly in InitOptions
+        // but BGEBaseENV15 is already a good balance.
+        // For "instant" speed, we might want BGESmallENV15.
+
         let model = TextEmbedding::try_new(options)?;
         Ok(Self { model })
     }
