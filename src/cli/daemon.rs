@@ -1,44 +1,61 @@
-//! Daemon command implementation
+//! Daemon command implementations (start, stop, status)
 
-use crate::cli::{DaemonAction, DaemonArgs};
-use crate::core::config::Config;
 use crate::core::error::Result;
-use crate::daemon::client;
+use crate::daemon::process;
 
-/// Run the daemon command
-pub fn run(args: DaemonArgs) -> Result<()> {
-    match args.action {
-        DaemonAction::Start => start_daemon(),
-        DaemonAction::Stop => stop_daemon(),
-        DaemonAction::Status => check_status(),
-        DaemonAction::Restart => {
-            stop_daemon()?;
-            start_daemon()
+/// Start the daemon
+pub fn start() -> Result<()> {
+    if process::is_running()? {
+        if let Some(pid) = process::get_pid()? {
+            println!("Daemon already running (PID: {})", pid);
+            return Ok(());
+        }
+    }
+
+    match process::start_daemon() {
+        Ok(pid) => {
+            println!("Daemon started (PID: {})", pid);
+            println!("File watcher active for incremental indexing.");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Failed to start daemon: {}", e);
+            Err(e)
         }
     }
 }
 
-fn start_daemon() -> Result<()> {
-    // TODO: Implement daemon start
-    println!("Daemon mode not yet implemented.");
-    println!("Use direct mode: greppy search \"query\"");
-    Ok(())
-}
-
-fn stop_daemon() -> Result<()> {
-    let socket_path = Config::socket_path()?;
-    if socket_path.exists() {
-        std::fs::remove_file(&socket_path)?;
-        println!("Daemon stopped.");
-    } else {
+/// Stop the daemon
+pub fn stop() -> Result<()> {
+    if !process::is_running()? {
         println!("Daemon is not running.");
+        return Ok(());
     }
-    Ok(())
+
+    match process::stop_daemon() {
+        Ok(true) => {
+            println!("Daemon stopped.");
+            Ok(())
+        }
+        Ok(false) => {
+            println!("Daemon is not running.");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Failed to stop daemon: {}", e);
+            Err(e)
+        }
+    }
 }
 
-fn check_status() -> Result<()> {
-    if client::is_running()? {
-        println!("Daemon is running.");
+/// Check daemon status
+pub fn status() -> Result<()> {
+    if process::is_running()? {
+        if let Some(pid) = process::get_pid()? {
+            println!("Daemon is running (PID: {})", pid);
+        } else {
+            println!("Daemon is running.");
+        }
     } else {
         println!("Daemon is not running.");
     }

@@ -33,6 +33,9 @@ pub enum Error {
     #[error("Daemon not running")]
     DaemonNotRunning,
 
+    #[error("Watch error: {message}")]
+    WatchError { message: String },
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 

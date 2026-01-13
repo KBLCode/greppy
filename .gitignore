@@ -2,3 +2,23 @@
 /docs
 /serena
 **/*.DS_Store
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+
+# Cache
+.fastembed_cache/
+.serena/

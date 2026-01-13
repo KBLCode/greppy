@@ -1,20 +1,57 @@
 //! CLI command definitions and handlers
 
 pub mod daemon;
-pub mod forget;
 pub mod index;
-pub mod list;
 pub mod login;
-pub mod logout;
 pub mod search;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-/// Sub-millisecond local semantic code search
+const LONG_ABOUT: &str = r#"
+ ██████╗ ██████╗ ███████╗██████╗ ██████╗ ██╗   ██╗
+██╔════╝ ██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝
+██║  ███╗██████╔╝█████╗  ██████╔╝██████╔╝ ╚████╔╝ 
+██║   ██║██╔══██╗██╔══╝  ██╔═══╝ ██╔═══╝   ╚██╔╝  
+╚██████╔╝██║  ██║███████╗██║     ██║        ██║   
+ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝        ╚═╝   
+
+Sub-millisecond semantic code search powered by BM25 + AI reranking.
+
+QUICK START:
+    1. greppy index           Index your codebase (one-time setup)
+    2. greppy login           Authenticate with Claude or Gemini (optional)
+    3. greppy search <query>  Search your code!
+
+SEARCH MODES:
+    greppy search "query"     Semantic search - AI reranks BM25 results
+    greppy search -d "query"  Direct search - BM25 only (no AI, faster)
+
+DAEMON (optional, for faster searches):
+    greppy start              Start background daemon with file watcher
+    greppy stop               Stop the daemon
+    greppy status             Check if daemon is running
+
+AUTHENTICATION:
+    greppy login              Authenticate with Claude or Gemini via OAuth
+    greppy logout             Remove stored credentials
+
+    Semantic search uses AI to rerank results by relevance. Without login,
+    searches fall back to direct BM25 mode automatically.
+
+EXAMPLES:
+    greppy index                      Index current directory
+    greppy search "error handling"    Find error handling code
+    greppy search -d "TODO" -n 50     Find all TODOs (direct mode)
+    greppy search "auth" --json       JSON output for scripting
+"#;
+
+/// Sub-millisecond semantic code search
 #[derive(Parser, Debug)]
 #[command(name = "greppy")]
-#[command(author, version, about, long_about = None)]
+#[command(author, version)]
+#[command(about = "Sub-millisecond semantic code search")]
+#[command(long_about = LONG_ABOUT)]
 #[command(propagate_version = true)]
 pub struct Cli {
     #[command(subcommand)]
@@ -23,114 +60,98 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Search for code semantically
+    /// Search for code (semantic by default, -d for direct BM25)
+    #[command(visible_alias = "s")]
     Search(SearchArgs),
 
-    /// Index a project
+    /// Index a project for searching
+    #[command(visible_alias = "i")]
     Index(IndexArgs),
 
-    /// Manage the background daemon
-    Daemon(DaemonArgs),
+    /// Start the background daemon
+    Start,
 
-    /// List indexed projects
-    List(ListArgs),
+    /// Stop the background daemon
+    Stop,
 
-    /// Remove a project's index
-    Forget(ForgetArgs),
+    /// Check if the daemon is running
+    Status,
 
-    /// Authenticate with Google
-    Login(login::LoginArgs),
+    /// Authenticate with Claude or Gemini for AI-powered semantic search
+    #[command(after_help = "AUTHENTICATION:
+    Greppy uses OAuth to authenticate with AI providers. No API keys needed!
+    
+    1. Run 'greppy login'
+    2. Select your provider (Claude or Gemini) using arrow keys
+    3. Complete the OAuth flow in your browser
+    4. You're ready to use semantic search!
 
-    /// Log out
-    Logout(logout::LogoutArgs),
+PROVIDERS:
+    Claude (Anthropic) - Uses your Claude.ai account
+    Gemini (Google)    - Uses your Google account
+
+NOTES:
+    - Tokens are stored securely in your system keychain
+    - Free tier usage through OAuth (no API billing)
+    - Run 'greppy logout' to remove stored credentials")]
+    Login,
+
+    /// Remove stored credentials and log out from all providers
+    #[command(
+        after_help = "This removes all stored OAuth tokens from your system keychain.
+After logging out, semantic search will fall back to direct BM25 search.
+Run 'greppy login' to authenticate again."
+    )]
+    Logout,
 }
 
 /// Arguments for the search command
 #[derive(Parser, Debug)]
+#[command(after_help = "EXAMPLES:
+    greppy search \"authentication\"       Semantic search (AI)
+    greppy search -d \"authentication\"    Direct BM25 search
+    greppy search \"error\" -n 10          Limit results
+    greppy search \"query\" --json         JSON output")]
 pub struct SearchArgs {
-    /// The search query
+    /// Search query
     pub query: String,
 
-    /// Maximum number of results
-    #[arg(short, long, default_value = "20")]
+    /// Direct mode (BM25 only, no AI)
+    #[arg(short = 'd', long)]
+    pub direct: bool,
+
+    /// Max results
+    #[arg(short = 'n', long, default_value = "20")]
     pub limit: usize,
 
-    /// Output format
-    #[arg(short = 'f', long, default_value = "human")]
-    pub format: OutputFormat,
+    /// JSON output
+    #[arg(long)]
+    pub json: bool,
 
-    /// Project path (defaults to current directory)
+    /// Project path (default: current directory)
     #[arg(short, long)]
     pub project: Option<PathBuf>,
-
-    /// Search only in specific paths (can be repeated)
-    #[arg(long = "path")]
-    pub paths: Vec<PathBuf>,
-
-    /// Include test files in results
-    #[arg(long)]
-    pub include_tests: bool,
-
-    /// Use daemon if available (faster)
-    #[arg(long, default_value = "true")]
-    pub use_daemon: bool,
 }
 
 /// Arguments for the index command
 #[derive(Parser, Debug)]
+#[command(after_help = "EXAMPLES:
+    greppy index              Index current directory
+    greppy index -p ~/code    Index specific directory
+    greppy index --force      Force full re-index")]
 pub struct IndexArgs {
-    /// Project path (defaults to current directory)
+    /// Project path (default: current directory)
     #[arg(short, long)]
     pub project: Option<PathBuf>,
 
-    /// Watch for changes and re-index
-    #[arg(short, long)]
-    pub watch: bool,
-
     /// Force full re-index
-    #[arg(long)]
+    #[arg(short, long)]
     pub force: bool,
 }
 
-/// Arguments for the daemon command
-#[derive(Parser, Debug)]
-pub struct DaemonArgs {
-    #[command(subcommand)]
-    pub action: DaemonAction,
-}
-
-#[derive(Subcommand, Debug)]
-pub enum DaemonAction {
-    /// Start the daemon
-    Start,
-    /// Stop the daemon
-    Stop,
-    /// Check daemon status
-    Status,
-    /// Restart the daemon
-    Restart,
-}
-
-/// Arguments for the list command
-#[derive(Parser, Debug)]
-pub struct ListArgs {
-    /// Output format
-    #[arg(short = 'f', long, default_value = "human")]
-    pub format: OutputFormat,
-}
-
-/// Arguments for the forget command
-#[derive(Parser, Debug)]
-pub struct ForgetArgs {
-    /// Project path to forget
-    pub project: PathBuf,
-}
-
 /// Output format options
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
-    /// Human-readable output
     Human,
-    /// JSON output
     Json,
 }

@@ -3,6 +3,7 @@
 //! A fast, local code search engine designed for AI coding tools.
 //! No cloud, no config, just `greppy search "query"`.
 
+pub mod ai;
 pub mod auth;
 pub mod cli;
 pub mod core;

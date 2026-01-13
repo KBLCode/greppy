@@ -7,7 +7,7 @@ use axum::{
 };
 use serde::Deserialize;
 use std::net::TcpListener;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 #[derive(Deserialize)]
 struct AuthCallback {
@@ -25,25 +25,34 @@ pub async fn run_server(
     expected_state: String,
 ) -> Result<oauth2::AuthorizationCode> {
     let (tx, mut rx) = mpsc::channel(1);
+    let (ready_tx, ready_rx) = oneshot::channel();
 
     let state = std::sync::Arc::new(AppState { tx, expected_state });
 
     let app = Router::new()
-        .route("/callback", get(handler))
+        .route("/callback", get(handler.clone()))
+        .route("/oauth2callback", get(handler))
         .with_state(state);
 
-    let server = axum::serve(tokio::net::TcpListener::from_std(listener)?, app);
+    // Convert std listener to tokio listener
+    listener.set_nonblocking(true)?;
+    let tokio_listener = tokio::net::TcpListener::from_std(listener)?;
 
-    // Run server in background, but we need to stop it once we get the code.
-    // For simplicity in this CLI tool, we'll race the server against the receiver.
-    // Actually, axum::serve runs forever. We need graceful shutdown.
-    // But simpler: just spawn it and wait for RX.
-
+    // Spawn server
     tokio::spawn(async move {
-        if let Err(e) = server.await {
+        // Signal that we're ready to accept connections
+        let _ = ready_tx.send(());
+
+        if let Err(e) = axum::serve(tokio_listener, app).await {
             eprintln!("Server error: {}", e);
         }
     });
+
+    // Wait for server to be ready
+    let _ = ready_rx.await;
+
+    // Small delay to ensure server is fully listening
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     // Wait for the code
     let code_str = rx

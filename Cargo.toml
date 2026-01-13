@@ -1,21 +1,34 @@
 [package]
 name = "greppy"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
-authors = ["Greppy Contributors"]
-description = "Sub-millisecond local semantic code search"
+rust-version = "1.70"
+authors = ["KBLCode <hello@kblcode.com>"]
+description = "Sub-millisecond semantic code search with AI reranking (Claude/Gemini)"
 license = "MIT"
-repository = "https://github.com/greppy/greppy"
+repository = "https://github.com/KBLCode/greppy"
+homepage = "https://github.com/KBLCode/greppy"
+documentation = "https://github.com/KBLCode/greppy#readme"
 readme = "README.md"
-keywords = ["search", "code", "semantic", "cli"]
-categories = ["command-line-utilities", "development-tools"]
+keywords = ["search", "code", "semantic", "cli", "ai"]
+categories = ["command-line-utilities", "development-tools", "text-processing"]
+exclude = [
+    ".github/",
+    ".gitignore",
+    "docs/",
+    "benches/",
+    "tests/",
+    "*.gif",
+    "*.md",
+    "!README.md",
+]
 
 [dependencies]
 # CLI
 clap = { version = "4", features = ["derive"] }
 
 # Search engine
-tantivy = "0.22"
+tantivy = "0.25"
 
 # Async runtime
 tokio = { version = "1", features = ["full", "net", "sync", "io-util", "fs", "signal"] }
@@ -29,6 +42,9 @@ toml = "0.8"
 notify = "6"
 ignore = "0.4"
 walkdir = "2"
+
+# Parallel processing (memory-safe, no large allocations)
+rayon = "1.10"
 
 # Utilities
 thiserror = "1"
@@ -49,6 +65,13 @@ axum = "0.7"
 open = "5"
 url = "2"
 rand = "0.8"
+
+# Interactive CLI
+dialoguer = "0.11"
+
+# Platform-specific
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

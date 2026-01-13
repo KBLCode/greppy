@@ -1,11 +1,11 @@
-use crate::core::config::Config;
 use crate::core::error::{Error, Result};
 use crate::index::schema::IndexSchema;
 use crate::index::tantivy_index::TantivyIndex;
 use crate::parse::Chunk;
-use std::path::Path;
-use tantivy::{doc, IndexWriter as TantivyWriter};
+use tantivy::{doc, IndexWriter as TantivyWriter, Term};
 
+/// Writer heap size - 50MB is reasonable for most projects
+/// This bounds Tantivy's internal memory usage
 const WRITER_HEAP_SIZE: usize = 50_000_000; // 50MB
 
 pub struct IndexWriter {
@@ -47,7 +47,32 @@ impl IndexWriter {
         Ok(())
     }
 
-    /// Commit changes
+    /// Delete all chunks for a given file path
+    ///
+    /// Used for incremental updates - delete old chunks before re-indexing.
+    /// This is O(1) in Tantivy - it marks documents as deleted without scanning.
+    #[inline]
+    pub fn delete_by_path(&mut self, path: &str) -> Result<()> {
+        let term = Term::from_field_text(self.schema.path, path);
+        self.writer.delete_term(term);
+        Ok(())
+    }
+
+    /// Commit changes and return a new writer
+    ///
+    /// This is used for periodic commits during large indexing operations
+    /// to prevent unbounded memory growth in Tantivy's internal buffers.
+    /// After commit, the old writer is consumed and a fresh one is returned.
+    pub fn commit_and_reopen(mut self, index: &TantivyIndex) -> Result<Self> {
+        self.writer.commit().map_err(|e| Error::IndexError {
+            message: e.to_string(),
+        })?;
+        // Drop old writer, create fresh one
+        drop(self.writer);
+        Self::new(index)
+    }
+
+    /// Commit changes (final commit, consumes writer)
     pub fn commit(mut self) -> Result<()> {
         self.writer.commit().map_err(|e| Error::IndexError {
             message: e.to_string(),

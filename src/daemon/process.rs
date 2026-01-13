@@ -1,5 +1,5 @@
-use crate::config::Config;
-use crate::error::{GreppyError, Result};
+use crate::core::config::Config;
+use crate::core::error::{Error, Result};
 use std::process::{Command, Stdio};
 
 /// Check if daemon is running
@@ -19,14 +19,24 @@ pub fn is_running() -> Result<bool> {
     // Check if process exists
     #[cfg(unix)]
     {
-        use std::os::unix::process::CommandExt;
         let result = unsafe { libc::kill(pid as i32, 0) };
         Ok(result == 0)
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        Ok(false)
+        // On Windows, use tasklist to check if process exists
+        let output = Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+            .output();
+
+        match output {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                Ok(stdout.contains(&pid.to_string()))
+            }
+            Err(_) => Ok(false),
+        }
     }
 }
 
@@ -51,7 +61,9 @@ pub fn get_pid() -> Result<Option<u32>> {
 pub fn start_daemon() -> Result<u32> {
     if is_running()? {
         if let Some(pid) = get_pid()? {
-            return Err(GreppyError::DaemonAlreadyRunning(pid));
+            return Err(Error::DaemonError {
+                message: format!("Daemon already running with PID {}", pid),
+            });
         }
     }
 
@@ -61,8 +73,18 @@ pub fn start_daemon() -> Result<u32> {
     let exe = std::env::current_exe()?;
 
     // Spawn daemon process
+    #[cfg(unix)]
     let child = Command::new(&exe)
         .arg("__daemon")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+
+    #[cfg(windows)]
+    let child = Command::new(&exe)
+        .arg("__daemon")
+        .creation_flags(0x00000008) // DETACHED_PROCESS
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -94,15 +116,34 @@ pub fn stop_daemon() -> Result<bool> {
         }
     }
 
+    #[cfg(windows)]
+    {
+        // On Windows, use taskkill
+        let _ = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output();
+    }
+
     // Clean up files
     let pid_path = Config::pid_path()?;
-    let socket_path = Config::socket_path()?;
-
     if pid_path.exists() {
         let _ = std::fs::remove_file(&pid_path);
     }
-    if socket_path.exists() {
-        let _ = std::fs::remove_file(&socket_path);
+
+    #[cfg(unix)]
+    {
+        let socket_path = Config::socket_path()?;
+        if socket_path.exists() {
+            let _ = std::fs::remove_file(&socket_path);
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        let port_path = Config::port_path()?;
+        if port_path.exists() {
+            let _ = std::fs::remove_file(&port_path);
+        }
     }
 
     Ok(true)

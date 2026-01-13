@@ -8,7 +8,6 @@ use std::time::Instant;
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, BoostQuery, Occur, Query, TermQuery};
 use tantivy::schema::{IndexRecordOption, Value};
-use tantivy::tokenizer::TextAnalyzer;
 use tantivy::Term;
 use tracing::debug;
 

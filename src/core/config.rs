@@ -192,7 +192,7 @@ impl Config {
         Ok(())
     }
 
-    /// Get the daemon socket path
+    /// Get the daemon socket path (Unix only)
     pub fn socket_path() -> Result<PathBuf> {
         if let Ok(socket) = std::env::var("GREPPY_DAEMON_SOCKET") {
             return Ok(PathBuf::from(socket));
@@ -200,7 +200,31 @@ impl Config {
         let home = Self::greppy_home()?;
         Ok(home.join("daemon.sock"))
     }
+
+    /// Get the daemon PID file path
+    pub fn pid_path() -> Result<PathBuf> {
+        Ok(Self::greppy_home()?.join("daemon.pid"))
+    }
+
+    /// Get the daemon port (Windows only - uses TCP instead of Unix sockets)
+    #[cfg(windows)]
+    pub fn daemon_port() -> u16 {
+        std::env::var("GREPPY_DAEMON_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(DEFAULT_DAEMON_PORT)
+    }
+
+    /// Get the daemon port file path (Windows - stores which port daemon is using)
+    #[cfg(windows)]
+    pub fn port_path() -> Result<PathBuf> {
+        Ok(Self::greppy_home()?.join("daemon.port"))
+    }
 }
+
+/// Default daemon port for Windows TCP connection
+#[cfg(windows)]
+const DEFAULT_DAEMON_PORT: u16 = 19532;
 
 pub const MAX_FILE_SIZE: u64 = 1_048_576; // 1MB
 pub const CHUNK_MAX_LINES: usize = 50;
