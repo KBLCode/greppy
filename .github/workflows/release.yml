@@ -8,9 +8,6 @@ on:
 permissions:
   contents: write
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
   build:
     strategy:
@@ -19,89 +16,57 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: greppy-linux-x86_64
-            ext: tar.gz
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            artifact: greppy-linux-aarch64
-            ext: tar.gz
-            cross: true
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact: greppy-darwin-x86_64
-            ext: tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact: greppy-darwin-aarch64
-            ext: tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: greppy-windows-x86_64
-            ext: zip
 
     runs-on: ${{ matrix.os }}
     
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       
-      - name: Install cross (Linux ARM)
-        if: matrix.cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
-      
-      - name: Build (native)
-        if: ${{ !matrix.cross }}
+      - name: Build
         run: cargo build --release --target ${{ matrix.target }}
-      
-      - name: Build (cross)
-        if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }}
       
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
-          mkdir -p dist
+          mkdir dist
           cp target/${{ matrix.target }}/release/greppy dist/
-          cd dist
-          tar -czvf ../${{ matrix.artifact }}.${{ matrix.ext }} greppy
+          cd dist && tar -czvf ../${{ matrix.artifact }}.tar.gz greppy
       
       - name: Package (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path dist -Force
-          Copy-Item target/${{ matrix.target }}/release/greppy.exe dist/
-          Compress-Archive -Path dist/greppy.exe -DestinationPath ${{ matrix.artifact }}.${{ matrix.ext }}
+          mkdir dist
+          cp target/${{ matrix.target }}/release/greppy.exe dist/
+          Compress-Archive -Path dist/greppy.exe -DestinationPath ${{ matrix.artifact }}.zip
       
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}.${{ matrix.ext }}
+          path: ${{ matrix.artifact }}.*
 
   release:
     needs: build
     runs-on: ubuntu-latest
-    
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
       
-      - name: List artifacts
-        run: find artifacts -type f
-      
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v1
         with:
           files: artifacts/**/*
           generate_release_notes: true
-          draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
