@@ -123,7 +123,7 @@ install_greppy() {
     info "Latest version: $latest"
 
     # Construct download URL
-    local tarball="greppy-${latest}-${platform}.tar.gz"
+    local tarball="greppy-${platform}.tar.gz"
     local url="https://github.com/$REPO/releases/download/$latest/$tarball"
 
     # Create temp directory
