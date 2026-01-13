@@ -2,6 +2,9 @@ use crate::core::config::Config;
 use crate::core::error::{Error, Result};
 use std::process::{Command, Stdio};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 /// Check if daemon is running
 pub fn is_running() -> Result<bool> {
     let pid_path = Config::pid_path()?;
