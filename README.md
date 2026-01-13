@@ -49,16 +49,18 @@ curl -fsSL https://raw.githubusercontent.com/KBLCode/greppy/main/install.sh | ba
 irm https://raw.githubusercontent.com/KBLCode/greppy/main/install.ps1 | iex
 ```
 
-### Homebrew
-
-```bash
-brew install KBLCode/tap/greppy
-```
-
 ### Cargo
 
 ```bash
-cargo install greppy
+cargo install greppy-cli
+```
+
+### From Source
+
+```bash
+git clone https://github.com/KBLCode/greppy
+cd greppy
+cargo install --path .
 ```
 
 ---
@@ -107,8 +109,8 @@ Pure BM25 search without AI. Faster, but results are ranked by keyword frequency
 
 ### Search Options
 
-```bash
-greppy search <query> [OPTIONS]
+```
+Usage: greppy search [OPTIONS] <QUERY>
 
 Options:
   -d, --direct             Direct mode (BM25 only, no AI)
@@ -304,17 +306,21 @@ greppy search "auth" --json
 
 ```json
 {
-  "query": "auth",
   "results": [
     {
       "path": "src/auth/login.rs",
       "content": "pub async fn login() -> Result<()> { ... }",
-      "score": 4.23,
-      "symbol_name": "login"
+      "symbol_name": "login",
+      "symbol_type": "method",
+      "start_line": 1,
+      "end_line": 50,
+      "language": "rust",
+      "score": 4.23
     }
   ],
-  "total": 15,
-  "took_ms": 0.8
+  "query": "auth",
+  "elapsed_ms": 0.8,
+  "project": "/path/to/project"
 }
 ```
 
@@ -361,17 +367,6 @@ greppy start
    greppy logout
    greppy login
    ```
-
----
-
-## Building from Source
-
-```bash
-git clone https://github.com/KBLCode/greppy
-cd greppy
-cargo build --release
-./target/release/greppy --version
-```
 
 ---
 

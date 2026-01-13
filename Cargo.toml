@@ -1,5 +1,5 @@
 [package]
-name = "greppy"
+name = "greppy-cli"
 version = "1.0.0"
 edition = "2021"
 rust-version = "1.70"
@@ -75,6 +75,10 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+
+[lib]
+name = "greppy"
+path = "src/lib.rs"
 
 [[bin]]
 name = "greppy"
