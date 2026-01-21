@@ -11,7 +11,7 @@
 
 **Sub-millisecond semantic code search and invocation tracing with AI-powered reranking.**
 
-No cloud indexing. No API keys. Just `greppy search "query"` or `greppy trace symbol`.
+No cloud indexing. Works with **Ollama (local)**, Claude, or Gemini. Just `greppy search "query"` or `greppy trace symbol`.
 
 ---
 
@@ -20,7 +20,7 @@ No cloud indexing. No API keys. Just `greppy search "query"` or `greppy trace sy
 Greppy is a local code search tool that combines:
 
 - **BM25 full-text search** via [Tantivy](https://github.com/quickwit-oss/tantivy) for sub-millisecond queries
-- **AI reranking** via Claude or Gemini to surface the most relevant results
+- **AI reranking** via Ollama (local), Claude, or Gemini to surface the most relevant results
 - **Background daemon** with file watching for instant, always-up-to-date searches
 
 ### Why Greppy?
@@ -91,12 +91,12 @@ That's it! Greppy works immediately after indexing. Authentication is optional b
 greppy search "error handling"
 ```
 
-When authenticated, Greppy:
+When configured with an AI provider, Greppy:
 1. Runs a fast BM25 search to find candidate results
-2. Sends candidates to Claude or Gemini for reranking
+2. Sends candidates to AI (Ollama local, Claude, or Gemini) for reranking
 3. Returns results ordered by semantic relevance
 
-If not authenticated, automatically falls back to direct mode.
+Without AI configured, automatically falls back to direct BM25 mode.
 
 ### Direct Search (BM25 Only)
 

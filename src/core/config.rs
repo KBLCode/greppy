@@ -82,6 +82,25 @@ pub struct AiConfig {
     /// Anthropic OAuth token (for Claude)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub anthropic_token: Option<String>,
+    /// Saved AI profiles for quick switching
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub profiles: HashMap<String, AiProfile>,
+}
+
+/// A saved AI profile (model configuration with optional tokens)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiProfile {
+    pub provider: AiProvider,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ollama_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ollama_url: Option<String>,
+    /// Profile-specific Google token (for multiple Gemini accounts)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub google_token: Option<String>,
+    /// Profile-specific Anthropic token (for multiple Claude accounts)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anthropic_token: Option<String>,
 }
 
 /// Supported AI providers
@@ -105,6 +124,7 @@ impl Default for AiConfig {
             ollama_url: "http://localhost:11434".to_string(),
             google_token: None,
             anthropic_token: None,
+            profiles: HashMap::new(),
         }
     }
 }

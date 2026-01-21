@@ -13,31 +13,51 @@ pub async fn run() -> Result<()> {
     let config = Config::load()?;
     let has_ollama = config.ai.provider == AiProvider::Ollama;
 
+    // Show current config if any
     if !providers.is_empty() || has_ollama {
-        println!("Already configured with:");
+        println!("Current providers:");
         for p in &providers {
             match p {
-                Provider::Anthropic => println!("  - Claude (Anthropic)"),
-                Provider::Google => println!("  - Gemini (Google)"),
+                Provider::Anthropic => println!("  ✓ Claude (Anthropic)"),
+                Provider::Google => println!("  ✓ Gemini (Google)"),
             }
         }
         if has_ollama {
-            println!("  - Ollama (local) - model: {}", config.ai.ollama_model);
+            println!("  ✓ Ollama ({})", config.ai.ollama_model);
         }
-        println!("\nTo switch providers, run 'greppy logout' first.");
-        return Ok(());
+        println!();
     }
 
-    // Interactive selection - Claude first, Ollama last (local option)
-    let options = &[
-        "Claude (Anthropic) - OAuth, free tier",
-        "Gemini (Google) - OAuth, free tier",
-        "Ollama (Local) - No internet, runs on your machine",
-    ];
+    // Interactive selection - show what's available to add
+    let mut options: Vec<&str> = Vec::new();
+
+    // Always show Claude option
+    if providers.contains(&Provider::Anthropic) {
+        options.push("Claude (Anthropic) ✓ configured");
+    } else {
+        options.push("Claude (Anthropic) - OAuth, free tier");
+    }
+
+    // Always show Gemini option
+    if providers.contains(&Provider::Google) {
+        options.push("Gemini (Google) ✓ configured");
+    } else {
+        options.push("Gemini (Google) - OAuth, free tier");
+    }
+
+    // Always show Ollama option
+    let ollama_label = if has_ollama {
+        format!("Ollama ({}) ✓ configured", config.ai.ollama_model)
+    } else {
+        "Ollama (Local) - No internet, runs on your machine".to_string()
+    };
+    options.push(&ollama_label);
+
+    options.push("Cancel");
 
     let selection = Select::with_theme(&ColorfulTheme::default())
-        .with_prompt("Choose AI provider")
-        .items(options)
+        .with_prompt("Add/configure AI provider")
+        .items(&options)
         .default(0)
         .interact()
         .map_err(|e| crate::core::error::Error::DaemonError {
@@ -46,21 +66,37 @@ pub async fn run() -> Result<()> {
 
     match selection {
         0 => {
+            // Claude
             println!("\nAuthenticating with Claude...\n");
             auth::login_anthropic().await?;
+            // Set as active provider
+            let mut config = Config::load()?;
+            config.ai.provider = AiProvider::Claude;
+            config.save()?;
         }
         1 => {
+            // Gemini
             println!("\nAuthenticating with Google...\n");
             auth::login_google().await?;
+            let mut config = Config::load()?;
+            config.ai.provider = AiProvider::Gemini;
+            config.save()?;
         }
         2 => {
+            // Ollama
             setup_ollama().await?;
+        }
+        3 => {
+            // Cancel
+            println!("Cancelled.");
+            return Ok(());
         }
         _ => unreachable!(),
     }
 
     println!("\nYou can now use semantic search:");
     println!("  greppy search \"your query\"");
+    println!("\nSwitch models anytime with: greppy model");
 
     Ok(())
 }

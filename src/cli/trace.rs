@@ -985,8 +985,8 @@ async fn analyze_impact_cmd(
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    // Collect direct callers
-    let mut direct_callers = Vec::new();
+    // Collect direct callers (deduplicated)
+    let mut direct_callers_set = HashSet::new();
     let mut direct_caller_files = HashSet::new();
 
     for &sym_id in &symbol_ids {
@@ -998,17 +998,19 @@ async fn analyze_impact_cmd(
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_default();
 
-                direct_callers.push(format!("{} ({}:{})", name, caller_file, caller.start_line));
+                let caller_str = format!("{} ({}:{})", name, caller_file, caller.start_line);
+                direct_callers_set.insert(caller_str);
                 direct_caller_files.insert(caller_file);
             }
         }
     }
+    let direct_callers: Vec<_> = direct_callers_set.into_iter().collect();
 
-    // Collect transitive callers via BFS
-    let mut transitive_callers = Vec::new();
+    // Collect transitive callers via BFS (deduplicated)
+    let mut transitive_callers_set = HashSet::new();
     let mut visited = HashSet::new();
     let mut queue: Vec<(u32, usize)> = symbol_ids.iter().map(|&id| (id, 0)).collect();
-    let mut affected_entry_points = Vec::new();
+    let mut affected_entry_points_set = HashSet::new();
     let mut all_files = HashSet::new();
 
     while let Some((current, depth)) = queue.pop() {
@@ -1026,12 +1028,12 @@ async fn analyze_impact_cmd(
 
             if sym.is_entry_point() {
                 let name = index.symbol_name(sym).unwrap_or("<unknown>");
-                affected_entry_points.push(format!("{} ({})", name, sym_file));
+                affected_entry_points_set.insert(format!("{} ({})", name, sym_file));
             }
 
             if depth > 1 {
                 let name = index.symbol_name(sym).unwrap_or("<unknown>");
-                transitive_callers.push(format!("{} (depth {})", name, depth));
+                transitive_callers_set.insert(format!("{} (depth {})", name, depth));
             }
         }
 
@@ -1041,6 +1043,8 @@ async fn analyze_impact_cmd(
             }
         }
     }
+    let transitive_callers: Vec<_> = transitive_callers_set.into_iter().collect();
+    let affected_entry_points: Vec<_> = affected_entry_points_set.into_iter().collect();
 
     // Determine risk level
     let risk_level = if affected_entry_points.len() > 10 || all_files.len() > 50 {
@@ -1552,22 +1556,19 @@ async fn compute_stats_cmd(project: &Project) -> Result<StatsResult> {
         *files_by_extension.entry(ext).or_insert(0) += 1;
     }
 
-    // Find most referenced symbols
-    let mut symbol_ref_counts: Vec<(String, usize)> = index
-        .symbols
-        .iter()
-        .filter_map(|s| {
-            let name = index.symbol_name(s)?;
+    // Find most referenced symbols (aggregated by name)
+    let mut symbol_ref_counts: HashMap<String, usize> = HashMap::new();
+    for s in &index.symbols {
+        if let Some(name) = index.symbol_name(s) {
             let ref_count = index.references_to(s.id).count();
             if ref_count > 0 {
-                Some((name.to_string(), ref_count))
-            } else {
-                None
+                *symbol_ref_counts.entry(name.to_string()).or_insert(0) += ref_count;
             }
-        })
-        .collect();
-    symbol_ref_counts.sort_by(|a, b| b.1.cmp(&a.1));
-    let most_referenced: Vec<_> = symbol_ref_counts.into_iter().take(10).collect();
+        }
+    }
+    let mut sorted_refs: Vec<_> = symbol_ref_counts.into_iter().collect();
+    sorted_refs.sort_by(|a, b| b.1.cmp(&a.1));
+    let most_referenced: Vec<_> = sorted_refs.into_iter().take(10).collect();
 
     // Find largest files (by symbol count)
     let mut file_symbol_counts: HashMap<u16, usize> = HashMap::new();
