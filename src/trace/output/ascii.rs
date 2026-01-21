@@ -464,6 +464,30 @@ impl TraceFormatter for AsciiFormatter {
                 colors::RESET,
                 sym.reason
             ));
+
+            // Show potential callers if cross-referencing is enabled
+            if !sym.potential_callers.is_empty() {
+                output.push_str(&format!(
+                    "      {}Potential callers:{}\n",
+                    colors::DIM,
+                    colors::RESET
+                ));
+                for caller in &sym.potential_callers {
+                    output.push_str(&format!(
+                        "        {}→{} {}  {}{}:{}{}  {}{}{}\n",
+                        colors::GREEN,
+                        colors::RESET,
+                        caller.name,
+                        colors::DIM,
+                        caller.file,
+                        caller.line,
+                        colors::RESET,
+                        colors::DIM,
+                        caller.reason,
+                        colors::RESET
+                    ));
+                }
+            }
         }
 
         output

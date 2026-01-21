@@ -14,8 +14,8 @@ use crate::trace::context::FileCache;
 use crate::trace::output::{
     create_formatter, ChainStep, DeadCodeResult, DeadSymbol, FlowAction, FlowResult, FlowStep,
     ImpactResult, InvocationPath, ModuleResult, OutputFormat, PatternMatch, PatternResult,
-    ReferenceInfo, ReferenceKind, RefsResult, RiskLevel, ScopeResult, ScopeVariable, StatsResult,
-    TraceResult,
+    PotentialCaller, ReferenceInfo, ReferenceKind, RefsResult, RiskLevel, ScopeResult,
+    ScopeVariable, StatsResult, TraceResult,
 };
 use crate::trace::{
     find_dead_symbols, find_refs, load_index, trace_index_exists, trace_index_path,
@@ -23,10 +23,42 @@ use crate::trace::{
 };
 use clap::Args;
 use regex::Regex;
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
+
+/// Combined results for multi-operation JSON output
+#[derive(Debug, Default, Serialize)]
+pub struct CombinedResults {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace: Option<TraceResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refs: Option<RefsResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callers: Option<TraceResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callees: Option<TraceResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_usage: Option<RefsResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub module: Option<ModuleResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<PatternResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow: Option<FlowResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impact: Option<ImpactResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<ScopeResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dead_code: Option<DeadCodeResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stats: Option<StatsResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cycles: Option<ModuleResult>,
+}
 
 // =============================================================================
 // HELPERS
@@ -84,11 +116,25 @@ fn reference_kind_str(kind: ReferenceKind) -> &'static str {
     greppy trace --impact login            Analyze change impact
     greppy trace --scope src/api.ts:42     Show scope at location
     greppy trace --dead                    Find unused code
+    greppy trace --dead --xref             Dead code with potential callers
     greppy trace --stats                   Show codebase statistics
     greppy trace --cycles                  Find circular dependencies
 
+COMPOSABLE FLAGS (run multiple operations at once):
+    greppy trace --dead --stats            Dead code + statistics
+    greppy trace --dead --stats --in src/  Filtered to src/ directory
+    greppy trace --dead --stats --summary  Condensed one-line summaries
+    greppy trace --refs foo --impact foo   References + impact analysis
+    greppy trace --dead --cycles           Dead code + circular deps
+
+FILTERING:
+    greppy trace --dead --in src/auth      Filter to path
+    greppy trace --dead --symbol-type fn   Filter by type (fn, struct, etc)
+    greppy trace --dead --name \"test.*\"    Filter by name pattern
+
 OUTPUT FORMATS:
     greppy trace --refs userId --json      JSON output for tooling
+    greppy trace --dead --stats --json     Combined JSON for multi-op
     greppy trace --refs userId --plain     Plain text (no colors)
     greppy trace --refs userId --csv       CSV output
     greppy trace --refs userId --dot       DOT graph format
@@ -149,6 +195,10 @@ pub struct TraceArgs {
     #[arg(long)]
     pub dead: bool,
 
+    /// Cross-reference dead code (show potential callers)
+    #[arg(long)]
+    pub xref: bool,
+
     /// Show codebase statistics
     #[arg(long)]
     pub stats: bool,
@@ -164,6 +214,14 @@ pub struct TraceArgs {
     /// Limit search to path/directory
     #[arg(long, value_name = "PATH")]
     pub r#in: Option<PathBuf>,
+
+    /// Filter by symbol type (function, method, class, variable, type, interface)
+    #[arg(long, value_name = "TYPE")]
+    pub symbol_type: Option<String>,
+
+    /// Filter by name pattern (regex)
+    #[arg(long, value_name = "PATTERN")]
+    pub name: Option<String>,
 
     /// Group results by (file, kind, scope)
     #[arg(long, value_name = "GROUP")]
@@ -209,6 +267,10 @@ pub struct TraceArgs {
     #[arg(long)]
     pub count: bool,
 
+    /// Summary mode: condensed output for multi-op commands
+    #[arg(long)]
+    pub summary: bool,
+
     /// Project path (default: current directory)
     #[arg(short, long)]
     pub project: Option<PathBuf>,
@@ -232,63 +294,69 @@ impl TraceArgs {
         }
     }
 
-    /// Get the primary operation to perform
-    fn operation(&self) -> TraceOperation {
+    /// Get all operations to perform (supports composable flags)
+    fn operations(&self) -> Vec<TraceOperation> {
+        let mut ops = Vec::new();
+
+        // Boolean flags (can combine)
         if self.dead {
-            return TraceOperation::DeadCode;
+            ops.push(TraceOperation::DeadCode);
         }
         if self.stats {
-            return TraceOperation::Stats;
+            ops.push(TraceOperation::Stats);
         }
         if self.cycles {
-            return TraceOperation::Cycles;
+            ops.push(TraceOperation::Cycles);
         }
+
+        // Symbol-based operations (can combine multiple)
         if let Some(ref loc) = self.scope {
-            return TraceOperation::Scope(loc.clone());
+            ops.push(TraceOperation::Scope(loc.clone()));
         }
         if let Some(ref sym) = self.impact {
-            return TraceOperation::Impact(sym.clone());
+            ops.push(TraceOperation::Impact(sym.clone()));
         }
         if let Some(ref sym) = self.flow {
-            return TraceOperation::Flow(sym.clone());
+            ops.push(TraceOperation::Flow(sym.clone()));
         }
         if let Some(ref pattern) = self.pattern {
-            return TraceOperation::Pattern(pattern.clone());
+            ops.push(TraceOperation::Pattern(pattern.clone()));
         }
         if let Some(ref module) = self.module {
-            return TraceOperation::Module(module.clone());
+            ops.push(TraceOperation::Module(module.clone()));
         }
         if let Some(ref type_name) = self.type_name {
-            return TraceOperation::Type(type_name.clone());
+            ops.push(TraceOperation::Type(type_name.clone()));
         }
         if let Some(ref sym) = self.callers {
-            return TraceOperation::Callers(sym.clone());
+            ops.push(TraceOperation::Callers(sym.clone()));
         }
         if let Some(ref sym) = self.callees {
-            return TraceOperation::Callees(sym.clone());
+            ops.push(TraceOperation::Callees(sym.clone()));
         }
         if let Some(ref sym) = self.reads {
-            return TraceOperation::Refs {
+            ops.push(TraceOperation::Refs {
                 symbol: sym.clone(),
                 kind: Some(ReferenceKind::Read),
-            };
+            });
         }
         if let Some(ref sym) = self.writes {
-            return TraceOperation::Refs {
+            ops.push(TraceOperation::Refs {
                 symbol: sym.clone(),
                 kind: Some(ReferenceKind::Write),
-            };
+            });
         }
         if let Some(ref sym) = self.refs {
-            return TraceOperation::Refs {
+            ops.push(TraceOperation::Refs {
                 symbol: sym.clone(),
                 kind: self.parse_kind_filter(),
-            };
+            });
         }
         if let Some(ref sym) = self.symbol {
-            return TraceOperation::Trace(sym.clone());
+            ops.push(TraceOperation::Trace(sym.clone()));
         }
-        TraceOperation::None
+
+        ops
     }
 
     /// Parse --kind filter into ReferenceKind
@@ -310,7 +378,6 @@ impl TraceArgs {
 /// The trace operation to perform
 #[derive(Debug)]
 enum TraceOperation {
-    None,
     Trace(String),
     Refs {
         symbol: String,
@@ -327,6 +394,61 @@ enum TraceOperation {
     DeadCode,
     Stats,
     Cycles,
+}
+
+/// Universal filter for trace operations
+#[derive(Debug, Clone, Default)]
+pub struct TraceFilter {
+    /// Filter by file/folder path (contains match)
+    pub path: Option<String>,
+    /// Filter by symbol type (function, method, class, etc.)
+    pub symbol_type: Option<String>,
+    /// Filter by name pattern (regex)
+    pub name_pattern: Option<regex::Regex>,
+}
+
+impl TraceFilter {
+    /// Check if a symbol passes the filter
+    pub fn matches_symbol(&self, name: &str, kind: &str, file_path: &str) -> bool {
+        // Path filter
+        if let Some(ref path) = self.path {
+            if !file_path.contains(path) {
+                return false;
+            }
+        }
+        // Symbol type filter
+        if let Some(ref stype) = self.symbol_type {
+            if !kind.to_lowercase().contains(&stype.to_lowercase()) {
+                return false;
+            }
+        }
+        // Name pattern filter
+        if let Some(ref pattern) = self.name_pattern {
+            if !pattern.is_match(name) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Check if a file path passes the filter
+    pub fn matches_path(&self, file_path: &str) -> bool {
+        if let Some(ref path) = self.path {
+            return file_path.contains(path);
+        }
+        true
+    }
+}
+
+impl TraceArgs {
+    /// Build a universal filter from args
+    pub fn build_filter(&self) -> TraceFilter {
+        TraceFilter {
+            path: self.r#in.as_ref().map(|p| p.to_string_lossy().to_string()),
+            symbol_type: self.symbol_type.clone(),
+            name_pattern: self.name.as_ref().and_then(|p| regex::Regex::new(p).ok()),
+        }
+    }
 }
 
 // =============================================================================
@@ -349,103 +471,289 @@ pub async fn run(args: TraceArgs) -> Result<()> {
         return run_tui(&args, &project).await;
     }
 
-    // Determine operation
-    let operation = args.operation();
-    debug!(?operation, "Trace operation");
+    // Get all operations (composable flags)
+    let operations = args.operations();
+    debug!(?operations, "Trace operations");
 
-    match operation {
-        TraceOperation::None => {
-            eprintln!("Usage: greppy trace <symbol>");
-            eprintln!("       greppy trace --refs <symbol>");
-            eprintln!("       greppy trace --dead");
-            eprintln!("       greppy trace --stats");
-            eprintln!("Run 'greppy trace --help' for more options.");
-            return Err(Error::SearchError {
-                message: "No symbol or operation specified".to_string(),
-            });
-        }
-        TraceOperation::Trace(symbol) => {
-            info!(symbol = %symbol, "Tracing symbol invocations");
-            let result = trace_symbol_cmd(&project, &symbol, args.max_depth, args.direct).await?;
-            println!("{}", formatter.format_trace(&result));
-        }
-        TraceOperation::Refs { symbol, kind } => {
-            info!(symbol = %symbol, ?kind, "Finding references");
-            let result = find_refs_cmd(&project, &symbol, kind, &args).await?;
-            if args.count {
-                println!("{}", result.total_refs);
-            } else {
-                println!("{}", formatter.format_refs(&result));
+    // Build universal filter from args
+    let filter = args.build_filter();
+
+    // No operations specified
+    if operations.is_empty() {
+        eprintln!("Usage: greppy trace <symbol>");
+        eprintln!("       greppy trace --refs <symbol>");
+        eprintln!("       greppy trace --dead");
+        eprintln!("       greppy trace --stats");
+        eprintln!("       greppy trace --dead --stats  (composable!)");
+        eprintln!("Run 'greppy trace --help' for more options.");
+        return Err(Error::SearchError {
+            message: "No symbol or operation specified".to_string(),
+        });
+    }
+
+    let multi_op = operations.len() > 1;
+    let summary_mode = args.summary;
+    let json_multi_op = args.json && multi_op;
+
+    // For JSON multi-op mode, collect results into combined struct
+    let mut combined = CombinedResults::default();
+
+    // Execute each operation
+    for (i, operation) in operations.iter().enumerate() {
+        // Print section header for multi-operation mode or summary mode (not for JSON)
+        if (multi_op || summary_mode) && !json_multi_op {
+            if i > 0 {
+                println!();
             }
+            let header = operation_header(operation);
+            println!("{}", "═".repeat(79));
+            println!("{}", header);
+            println!("{}", "═".repeat(79));
         }
-        TraceOperation::Callers(symbol) => {
-            info!(symbol = %symbol, "Finding callers");
-            let result = find_callers_cmd(&project, &symbol, args.max_depth).await?;
-            println!("{}", formatter.format_trace(&result));
-        }
-        TraceOperation::Callees(symbol) => {
-            info!(symbol = %symbol, "Finding callees");
-            let result = find_callees_cmd(&project, &symbol, args.max_depth).await?;
-            println!("{}", formatter.format_trace(&result));
-        }
-        TraceOperation::Type(type_name) => {
-            info!(type_name = %type_name, "Tracing type usage");
-            let result = find_refs_cmd(
-                &project,
-                &type_name,
-                Some(ReferenceKind::TypeAnnotation),
-                &args,
-            )
-            .await?;
-            println!("{}", formatter.format_refs(&result));
-        }
-        TraceOperation::Module(module) => {
-            info!(module = %module, "Tracing module");
-            let result = trace_module_cmd(&project, &module).await?;
-            println!("{}", formatter.format_module(&result));
-        }
-        TraceOperation::Pattern(pattern) => {
-            info!(pattern = %pattern, "Tracing pattern");
-            let result = trace_pattern_cmd(&project, &pattern, &args).await?;
-            println!("{}", formatter.format_pattern(&result));
-        }
-        TraceOperation::Flow(symbol) => {
-            info!(symbol = %symbol, "Tracing data flow");
-            let result = trace_flow_cmd(&project, &symbol, &args).await?;
-            println!("{}", formatter.format_flow(&result));
-        }
-        TraceOperation::Impact(symbol) => {
-            info!(symbol = %symbol, "Analyzing impact");
-            let result = analyze_impact_cmd(&project, &symbol, args.max_depth).await?;
-            println!("{}", formatter.format_impact(&result));
-        }
-        TraceOperation::Scope(location) => {
-            info!(location = %location, "Analyzing scope");
-            let result = analyze_scope_cmd(&project, &location).await?;
-            println!("{}", formatter.format_scope(&result));
-        }
-        TraceOperation::DeadCode => {
-            info!("Finding dead code");
-            let result = find_dead_code_cmd(&project, args.limit).await?;
-            if args.count {
-                println!("{}", result.total_dead);
-            } else {
-                println!("{}", formatter.format_dead_code(&result));
+
+        match operation {
+            TraceOperation::Trace(symbol) => {
+                info!(symbol = %symbol, "Tracing symbol invocations");
+                let result =
+                    trace_symbol_cmd(&project, symbol, args.max_depth, args.direct, &filter)
+                        .await?;
+                if json_multi_op {
+                    combined.trace = Some(result);
+                } else if summary_mode {
+                    println!(
+                        "  Paths: {}  Entry points: {}",
+                        result.invocation_paths.len(),
+                        result.entry_points
+                    );
+                } else {
+                    println!("{}", formatter.format_trace(&result));
+                }
             }
-        }
-        TraceOperation::Stats => {
-            info!("Computing statistics");
-            let result = compute_stats_cmd(&project).await?;
-            println!("{}", formatter.format_stats(&result));
-        }
-        TraceOperation::Cycles => {
-            info!("Finding circular dependencies");
-            let result = find_cycles_cmd(&project).await?;
-            println!("{}", formatter.format_module(&result));
+            TraceOperation::Refs { symbol, kind } => {
+                info!(symbol = %symbol, ?kind, "Finding references");
+                let result = find_refs_cmd(&project, symbol, *kind, &args, &filter).await?;
+                if json_multi_op {
+                    combined.refs = Some(result);
+                } else if args.count || summary_mode {
+                    println!(
+                        "  References: {}  Files: {}",
+                        result.total_refs,
+                        result.by_file.len()
+                    );
+                } else {
+                    println!("{}", formatter.format_refs(&result));
+                }
+            }
+            TraceOperation::Callers(symbol) => {
+                info!(symbol = %symbol, "Finding callers");
+                let result = find_callers_cmd(&project, symbol, args.max_depth, &filter).await?;
+                if json_multi_op {
+                    combined.callers = Some(result);
+                } else if summary_mode {
+                    println!(
+                        "  Callers: {}  Paths: {}",
+                        result.entry_points,
+                        result.invocation_paths.len()
+                    );
+                } else {
+                    println!("{}", formatter.format_trace(&result));
+                }
+            }
+            TraceOperation::Callees(symbol) => {
+                info!(symbol = %symbol, "Finding callees");
+                let result = find_callees_cmd(&project, symbol, args.max_depth, &filter).await?;
+                if json_multi_op {
+                    combined.callees = Some(result);
+                } else if summary_mode {
+                    println!("  Callees: {}", result.invocation_paths.len());
+                } else {
+                    println!("{}", formatter.format_trace(&result));
+                }
+            }
+            TraceOperation::Type(type_name) => {
+                info!(type_name = %type_name, "Tracing type usage");
+                let result = find_refs_cmd(
+                    &project,
+                    type_name,
+                    Some(ReferenceKind::TypeAnnotation),
+                    &args,
+                    &filter,
+                )
+                .await?;
+                if json_multi_op {
+                    combined.type_usage = Some(result);
+                } else if summary_mode {
+                    println!("  Type usages: {}", result.total_refs);
+                } else {
+                    println!("{}", formatter.format_refs(&result));
+                }
+            }
+            TraceOperation::Module(module) => {
+                info!(module = %module, "Tracing module");
+                let result = trace_module_cmd(&project, module, &filter).await?;
+                if json_multi_op {
+                    combined.module = Some(result);
+                } else if summary_mode {
+                    println!(
+                        "  Exports: {}  Imported by: {}  Deps: {}",
+                        result.exports.len(),
+                        result.imported_by.len(),
+                        result.dependencies.len()
+                    );
+                } else {
+                    println!("{}", formatter.format_module(&result));
+                }
+            }
+            TraceOperation::Pattern(pattern) => {
+                info!(pattern = %pattern, "Tracing pattern");
+                let result = trace_pattern_cmd(&project, pattern, &args, &filter).await?;
+                if json_multi_op {
+                    combined.pattern = Some(result);
+                } else if summary_mode {
+                    println!(
+                        "  Matches: {}  Files: {}",
+                        result.total_matches,
+                        result.by_file.len()
+                    );
+                } else {
+                    println!("{}", formatter.format_pattern(&result));
+                }
+            }
+            TraceOperation::Flow(symbol) => {
+                info!(symbol = %symbol, "Tracing data flow");
+                let result = trace_flow_cmd(&project, symbol, &args, &filter).await?;
+                if json_multi_op {
+                    combined.flow = Some(result);
+                } else if summary_mode {
+                    let total_steps: usize = result.flow_paths.iter().map(|p| p.len()).sum();
+                    println!(
+                        "  Flow paths: {}  Steps: {}",
+                        result.flow_paths.len(),
+                        total_steps
+                    );
+                } else {
+                    println!("{}", formatter.format_flow(&result));
+                }
+            }
+            TraceOperation::Impact(symbol) => {
+                info!(symbol = %symbol, "Analyzing impact");
+                let result = analyze_impact_cmd(&project, symbol, args.max_depth, &filter).await?;
+                if json_multi_op {
+                    combined.impact = Some(result);
+                } else if summary_mode {
+                    println!(
+                        "  Direct callers: {}  Transitive: {}  Entry points: {}  Risk: {:?}",
+                        result.direct_callers.len(),
+                        result.transitive_callers.len(),
+                        result.affected_entry_points.len(),
+                        result.risk_level
+                    );
+                } else {
+                    println!("{}", formatter.format_impact(&result));
+                }
+            }
+            TraceOperation::Scope(location) => {
+                info!(location = %location, "Analyzing scope");
+                let result = analyze_scope_cmd(&project, location, &filter).await?;
+                if json_multi_op {
+                    combined.scope = Some(result);
+                } else if summary_mode {
+                    println!(
+                        "  Scope: {}  Variables: {}  Imports: {}",
+                        result.enclosing_scope.as_deref().unwrap_or("global"),
+                        result.local_variables.len(),
+                        result.imports.len()
+                    );
+                } else {
+                    println!("{}", formatter.format_scope(&result));
+                }
+            }
+            TraceOperation::DeadCode => {
+                info!("Finding dead code");
+                let result = find_dead_code_cmd(&project, args.limit, &filter, args.xref).await?;
+                if json_multi_op {
+                    combined.dead_code = Some(result);
+                } else if args.count || summary_mode {
+                    let kinds: Vec<_> = result
+                        .by_kind
+                        .iter()
+                        .map(|(k, v)| format!("{}={}", k, v))
+                        .collect();
+                    println!(
+                        "  Dead symbols: {}  ({})",
+                        result.total_dead,
+                        kinds.join(", ")
+                    );
+                } else {
+                    println!("{}", formatter.format_dead_code(&result));
+                }
+            }
+            TraceOperation::Stats => {
+                info!("Computing statistics");
+                let result = compute_stats_cmd(&project, &filter).await?;
+                if json_multi_op {
+                    combined.stats = Some(result);
+                } else if summary_mode {
+                    println!(
+                        "  Files: {}  Symbols: {}  Refs: {}  Edges: {}",
+                        result.total_files,
+                        result.total_symbols,
+                        result.total_references,
+                        result.total_edges
+                    );
+                } else {
+                    println!("{}", formatter.format_stats(&result));
+                }
+            }
+            TraceOperation::Cycles => {
+                info!("Finding circular dependencies");
+                let result = find_cycles_cmd(&project, &filter).await?;
+                if json_multi_op {
+                    combined.cycles = Some(result);
+                } else if summary_mode {
+                    println!("  Circular deps: {}", result.circular_deps.len());
+                } else {
+                    println!("{}", formatter.format_module(&result));
+                }
+            }
         }
     }
 
+    // Output combined JSON for multi-op JSON mode
+    if json_multi_op {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&combined)
+                .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e))
+        );
+    }
+
     Ok(())
+}
+
+/// Generate header text for an operation in multi-op mode
+fn operation_header(op: &TraceOperation) -> String {
+    match op {
+        TraceOperation::Trace(s) => format!("TRACE: {}", s),
+        TraceOperation::Refs { symbol, kind } => {
+            if let Some(k) = kind {
+                format!("REFERENCES: {} ({:?})", symbol, k)
+            } else {
+                format!("REFERENCES: {}", symbol)
+            }
+        }
+        TraceOperation::Callers(s) => format!("CALLERS: {}", s),
+        TraceOperation::Callees(s) => format!("CALLEES: {}", s),
+        TraceOperation::Type(s) => format!("TYPE USAGE: {}", s),
+        TraceOperation::Module(s) => format!("MODULE: {}", s),
+        TraceOperation::Pattern(s) => format!("PATTERN: {}", s),
+        TraceOperation::Flow(s) => format!("DATA FLOW: {}", s),
+        TraceOperation::Impact(s) => format!("IMPACT ANALYSIS: {}", s),
+        TraceOperation::Scope(s) => format!("SCOPE: {}", s),
+        TraceOperation::DeadCode => "DEAD CODE ANALYSIS".to_string(),
+        TraceOperation::Stats => "CODEBASE STATISTICS".to_string(),
+        TraceOperation::Cycles => "CIRCULAR DEPENDENCIES".to_string(),
+    }
 }
 
 // =============================================================================
@@ -501,8 +809,9 @@ async fn find_refs_cmd(
     symbol: &str,
     kind_filter: Option<ReferenceKind>,
     args: &TraceArgs,
+    filter: &TraceFilter,
 ) -> Result<RefsResult> {
-    debug!(symbol = %symbol, ?kind_filter, "find_refs");
+    debug!(symbol = %symbol, ?kind_filter, ?filter, "find_refs");
 
     let index = load_semantic_index(project)?;
     let mut cache = FileCache::new(&project.root);
@@ -557,11 +866,9 @@ async fn find_refs_cmd(
                 .unwrap_or_default();
             let file = file_path.to_string_lossy().to_string();
 
-            // Apply path filter
-            if let Some(ref in_path) = args.r#in {
-                if !file.contains(&in_path.to_string_lossy().to_string()) {
-                    continue;
-                }
+            // Apply universal filter (path, type, name)
+            if !filter.matches_path(&file) {
+                continue;
             }
 
             // Find enclosing symbol
@@ -691,7 +998,9 @@ async fn find_callers_cmd(
     project: &Project,
     symbol: &str,
     max_depth: usize,
+    filter: &TraceFilter,
 ) -> Result<TraceResult> {
+    let _ = filter; // TODO: apply filter to results
     debug!(symbol = %symbol, "find_callers");
 
     let index = load_semantic_index(project)?;
@@ -830,7 +1139,9 @@ async fn find_callees_cmd(
     project: &Project,
     symbol: &str,
     max_depth: usize,
+    filter: &TraceFilter,
 ) -> Result<TraceResult> {
+    let _ = filter; // TODO: apply filter to results
     debug!(symbol = %symbol, "find_callees");
 
     let index = load_semantic_index(project)?;
@@ -944,7 +1255,9 @@ async fn analyze_impact_cmd(
     project: &Project,
     symbol: &str,
     max_depth: usize,
+    filter: &TraceFilter,
 ) -> Result<ImpactResult> {
+    let _ = filter; // TODO: apply filter to results
     debug!(symbol = %symbol, "analyze_impact");
 
     let index = load_semantic_index(project)?;
@@ -1082,7 +1395,12 @@ async fn analyze_impact_cmd(
 // =============================================================================
 
 /// Trace module imports/exports
-async fn trace_module_cmd(project: &Project, module: &str) -> Result<ModuleResult> {
+async fn trace_module_cmd(
+    project: &Project,
+    module: &str,
+    filter: &TraceFilter,
+) -> Result<ModuleResult> {
+    let _ = filter; // TODO: apply filter to results
     debug!(module = %module, "trace_module");
 
     let index = load_semantic_index(project)?;
@@ -1160,12 +1478,21 @@ async fn trace_module_cmd(project: &Project, module: &str) -> Result<ModuleResul
 }
 
 /// Find circular dependencies
-async fn find_cycles_cmd(project: &Project) -> Result<ModuleResult> {
-    debug!("find_cycles");
+async fn find_cycles_cmd(project: &Project, filter: &TraceFilter) -> Result<ModuleResult> {
+    debug!("find_cycles filter={:?}", filter);
 
     let index = load_semantic_index(project)?;
 
-    // Build file dependency graph
+    // Helper to check if file passes filter
+    let file_passes = |file_id: u16| -> bool {
+        if let Some(path) = index.file_path(file_id) {
+            filter.matches_path(&path.to_string_lossy())
+        } else {
+            false
+        }
+    };
+
+    // Build file dependency graph (filtered)
     let mut file_deps: HashMap<u16, HashSet<u16>> = HashMap::new();
 
     for edge in &index.edges {
@@ -1173,10 +1500,16 @@ async fn find_cycles_cmd(project: &Project) -> Result<ModuleResult> {
             (index.symbol(edge.from_symbol), index.symbol(edge.to_symbol))
         {
             if from_sym.file_id != to_sym.file_id {
-                file_deps
-                    .entry(from_sym.file_id)
-                    .or_default()
-                    .insert(to_sym.file_id);
+                // Only include if at least one file passes the filter (or no filter)
+                let from_passes = file_passes(from_sym.file_id);
+                let to_passes = file_passes(to_sym.file_id);
+
+                if from_passes || to_passes || filter.path.is_none() {
+                    file_deps
+                        .entry(from_sym.file_id)
+                        .or_default()
+                        .insert(to_sym.file_id);
+                }
             }
         }
     }
@@ -1196,6 +1529,7 @@ async fn find_cycles_cmd(project: &Project) -> Result<ModuleResult> {
             &mut path,
             &mut cycles,
             &index,
+            filter,
         );
     }
 
@@ -1217,6 +1551,7 @@ fn find_cycles_dfs(
     path: &mut Vec<u16>,
     cycles: &mut Vec<String>,
     index: &SemanticIndex,
+    filter: &TraceFilter,
 ) {
     visited.insert(node);
     rec_stack.insert(node);
@@ -1225,7 +1560,9 @@ fn find_cycles_dfs(
     if let Some(neighbors) = graph.get(&node) {
         for &neighbor in neighbors {
             if !visited.contains(&neighbor) {
-                find_cycles_dfs(neighbor, graph, visited, rec_stack, path, cycles, index);
+                find_cycles_dfs(
+                    neighbor, graph, visited, rec_stack, path, cycles, index, filter,
+                );
             } else if rec_stack.contains(&neighbor) {
                 // Found a cycle
                 let cycle_start = path.iter().position(|&n| n == neighbor).unwrap_or(0);
@@ -1239,7 +1576,13 @@ fn find_cycles_dfs(
                     .collect();
 
                 if !cycle_path.is_empty() {
-                    cycles.push(cycle_path.join(" -> ") + " -> " + &cycle_path[0]);
+                    // Only include cycle if at least one file in the cycle passes the filter
+                    let cycle_passes =
+                        filter.path.is_none() || cycle_path.iter().any(|p| filter.matches_path(p));
+
+                    if cycle_passes {
+                        cycles.push(cycle_path.join(" -> ") + " -> " + &cycle_path[0]);
+                    }
                 }
             }
         }
@@ -1254,8 +1597,13 @@ fn find_cycles_dfs(
 // =============================================================================
 
 /// Trace data flow for a variable
-async fn trace_flow_cmd(project: &Project, symbol: &str, args: &TraceArgs) -> Result<FlowResult> {
-    debug!(symbol = %symbol, "trace_flow");
+async fn trace_flow_cmd(
+    project: &Project,
+    symbol: &str,
+    args: &TraceArgs,
+    filter: &TraceFilter,
+) -> Result<FlowResult> {
+    debug!(symbol = %symbol, "trace_flow filter={:?}", filter);
 
     let index = load_semantic_index(project)?;
     let mut cache = FileCache::new(&project.root);
@@ -1269,6 +1617,12 @@ async fn trace_flow_cmd(project: &Project, symbol: &str, args: &TraceArgs) -> Re
         let mut by_file: HashMap<u16, Vec<&crate::trace::Token>> = HashMap::new();
         for &token_id in token_ids {
             if let Some(token) = index.token(token_id) {
+                // Apply path filter
+                if let Some(path) = index.file_path(token.file_id) {
+                    if !filter.matches_path(&path.to_string_lossy()) {
+                        continue;
+                    }
+                }
                 by_file.entry(token.file_id).or_default().push(token);
             }
         }
@@ -1338,8 +1692,9 @@ async fn trace_pattern_cmd(
     project: &Project,
     pattern: &str,
     args: &TraceArgs,
+    filter: &TraceFilter,
 ) -> Result<PatternResult> {
-    debug!(pattern = %pattern, "trace_pattern");
+    debug!(pattern = %pattern, "trace_pattern filter={:?}", filter);
 
     let regex = Regex::new(pattern).map_err(|e| Error::SearchError {
         message: format!("Invalid regex pattern: {}", e),
@@ -1351,14 +1706,10 @@ async fn trace_pattern_cmd(
     let mut matches = Vec::new();
 
     for (file_id, file_path) in index.files.iter().enumerate() {
-        // Apply path filter
-        if let Some(ref in_path) = args.r#in {
-            if !file_path
-                .to_string_lossy()
-                .contains(&in_path.to_string_lossy().to_string())
-            {
-                continue;
-            }
+        // Apply universal path filter
+        let file_str = file_path.to_string_lossy();
+        if !filter.matches_path(&file_str) {
+            continue;
         }
 
         // Read file and search
@@ -1424,8 +1775,13 @@ async fn trace_pattern_cmd(
 // =============================================================================
 
 /// Analyze scope at a specific location
-async fn analyze_scope_cmd(project: &Project, location: &str) -> Result<ScopeResult> {
+async fn analyze_scope_cmd(
+    project: &Project,
+    location: &str,
+    filter: &TraceFilter,
+) -> Result<ScopeResult> {
     debug!(location = %location, "analyze_scope");
+    let _ = filter; // TODO: Apply filter to scope analysis
 
     // Parse file:line format
     let parts: Vec<&str> = location.rsplitn(2, ':').collect();
@@ -1532,37 +1888,67 @@ async fn analyze_scope_cmd(project: &Project, location: &str) -> Result<ScopeRes
 // =============================================================================
 
 /// Compute codebase statistics
-async fn compute_stats_cmd(project: &Project) -> Result<StatsResult> {
+async fn compute_stats_cmd(project: &Project, filter: &TraceFilter) -> Result<StatsResult> {
     debug!("compute_stats");
 
     let index = load_semantic_index(project)?;
     let stats = index.stats();
 
-    // Count symbols by kind
+    // Helper to check if a file passes the filter
+    let file_passes = |file_id: u16| -> bool {
+        if let Some(path) = index.file_path(file_id) {
+            filter.matches_path(&path.to_string_lossy())
+        } else {
+            false
+        }
+    };
+
+    // Helper to check if a symbol passes the filter
+    let symbol_passes = |symbol: &crate::trace::Symbol| -> bool {
+        if let Some(path) = index.file_path(symbol.file_id) {
+            let name = index.symbol_name(symbol).unwrap_or("");
+            let kind = symbol_kind_str(symbol.symbol_kind());
+            filter.matches_symbol(name, kind, &path.to_string_lossy())
+        } else {
+            false
+        }
+    };
+
+    // Count symbols by kind (filtered)
     let mut symbols_by_kind: HashMap<String, usize> = HashMap::new();
+    let mut filtered_symbol_count = 0;
     for symbol in &index.symbols {
-        *symbols_by_kind
-            .entry(symbol_kind_str(symbol.symbol_kind()).to_string())
-            .or_insert(0) += 1;
+        if symbol_passes(symbol) {
+            filtered_symbol_count += 1;
+            *symbols_by_kind
+                .entry(symbol_kind_str(symbol.symbol_kind()).to_string())
+                .or_insert(0) += 1;
+        }
     }
 
-    // Count files by extension
+    // Count files by extension (filtered)
     let mut files_by_extension: HashMap<String, usize> = HashMap::new();
-    for file in &index.files {
-        let ext = file
-            .extension()
-            .map(|e| e.to_string_lossy().to_string())
-            .unwrap_or_else(|| "unknown".to_string());
-        *files_by_extension.entry(ext).or_insert(0) += 1;
+    let mut filtered_file_count = 0;
+    for (idx, file) in index.files.iter().enumerate() {
+        if file_passes(idx as u16) {
+            filtered_file_count += 1;
+            let ext = file
+                .extension()
+                .map(|e| e.to_string_lossy().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            *files_by_extension.entry(ext).or_insert(0) += 1;
+        }
     }
 
-    // Find most referenced symbols (aggregated by name)
+    // Find most referenced symbols (aggregated by name, filtered)
     let mut symbol_ref_counts: HashMap<String, usize> = HashMap::new();
     for s in &index.symbols {
-        if let Some(name) = index.symbol_name(s) {
-            let ref_count = index.references_to(s.id).count();
-            if ref_count > 0 {
-                *symbol_ref_counts.entry(name.to_string()).or_insert(0) += ref_count;
+        if symbol_passes(s) {
+            if let Some(name) = index.symbol_name(s) {
+                let ref_count = index.references_to(s.id).count();
+                if ref_count > 0 {
+                    *symbol_ref_counts.entry(name.to_string()).or_insert(0) += ref_count;
+                }
             }
         }
     }
@@ -1570,10 +1956,12 @@ async fn compute_stats_cmd(project: &Project) -> Result<StatsResult> {
     sorted_refs.sort_by(|a, b| b.1.cmp(&a.1));
     let most_referenced: Vec<_> = sorted_refs.into_iter().take(10).collect();
 
-    // Find largest files (by symbol count)
+    // Find largest files (by symbol count, filtered)
     let mut file_symbol_counts: HashMap<u16, usize> = HashMap::new();
     for symbol in &index.symbols {
-        *file_symbol_counts.entry(symbol.file_id).or_insert(0) += 1;
+        if file_passes(symbol.file_id) {
+            *file_symbol_counts.entry(symbol.file_id).or_insert(0) += 1;
+        }
     }
     let mut largest_files: Vec<_> = file_symbol_counts
         .into_iter()
@@ -1585,16 +1973,24 @@ async fn compute_stats_cmd(project: &Project) -> Result<StatsResult> {
     largest_files.sort_by(|a, b| b.1.cmp(&a.1));
     largest_files.truncate(10);
 
+    // Use filtered counts if filter is active, otherwise use global stats
+    let (total_files, total_symbols) =
+        if filter.path.is_some() || filter.symbol_type.is_some() || filter.name_pattern.is_some() {
+            (filtered_file_count, filtered_symbol_count)
+        } else {
+            (stats.files, stats.symbols)
+        };
+
     // Calculate call graph stats
     let max_call_depth = calculate_max_call_depth(&index);
     let avg_call_depth = calculate_avg_call_depth(&index);
 
     Ok(StatsResult {
-        total_files: stats.files,
-        total_symbols: stats.symbols,
-        total_tokens: stats.tokens,
-        total_references: stats.references,
-        total_edges: stats.edges,
+        total_files,
+        total_symbols,
+        total_tokens: stats.tokens, // Not filtered (token-level filtering is expensive)
+        total_references: stats.references, // Not filtered
+        total_edges: stats.edges,   // Not filtered
         total_entry_points: stats.entry_points,
         symbols_by_kind,
         files_by_extension,
@@ -1660,8 +2056,9 @@ async fn trace_symbol_cmd(
     symbol: &str,
     max_depth: usize,
     direct: bool,
+    filter: &TraceFilter,
 ) -> Result<TraceResult> {
-    debug!(symbol = %symbol, max_depth, direct, "trace_symbol");
+    debug!(symbol = %symbol, max_depth, direct, ?filter, "trace_symbol");
 
     let index = load_semantic_index(project)?;
 
@@ -1940,8 +2337,13 @@ async fn rerank_paths_with_ai(query: &str, mut paths: Vec<InvocationPath>) -> Ve
 // =============================================================================
 
 /// Find dead/unused code
-async fn find_dead_code_cmd(project: &Project, limit: Option<usize>) -> Result<DeadCodeResult> {
-    debug!("find_dead_code");
+async fn find_dead_code_cmd(
+    project: &Project,
+    limit: Option<usize>,
+    filter: &TraceFilter,
+    xref: bool,
+) -> Result<DeadCodeResult> {
+    debug!("find_dead_code filter={:?} xref={}", filter, xref);
 
     let index = load_semantic_index(project)?;
 
@@ -1952,15 +2354,28 @@ async fn find_dead_code_cmd(project: &Project, limit: Option<usize>) -> Result<D
     let mut by_file: HashMap<String, usize> = HashMap::new();
 
     for sym in dead_symbols {
-        let name = index.symbol_name(sym).unwrap_or("<unknown>").to_string();
-        let kind = symbol_kind_str(sym.symbol_kind()).to_string();
         let file = index
             .file_path(sym.file_id)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| "<unknown>".to_string());
 
+        let name = index.symbol_name(sym).unwrap_or("<unknown>").to_string();
+        let kind = symbol_kind_str(sym.symbol_kind()).to_string();
+
+        // Apply universal filter
+        if !filter.matches_symbol(&name, &kind, &file) {
+            continue;
+        }
+
         *by_kind.entry(kind.clone()).or_insert(0) += 1;
         *by_file.entry(file.clone()).or_insert(0) += 1;
+
+        // Cross-reference: find potential callers if enabled
+        let potential_callers = if xref {
+            find_potential_callers(&index, sym, &name)
+        } else {
+            Vec::new()
+        };
 
         symbols.push(DeadSymbol {
             name,
@@ -1968,6 +2383,7 @@ async fn find_dead_code_cmd(project: &Project, limit: Option<usize>) -> Result<D
             file,
             line: sym.start_line,
             reason: "No references or calls found".to_string(),
+            potential_callers,
         });
     }
 
@@ -1985,6 +2401,78 @@ async fn find_dead_code_cmd(project: &Project, limit: Option<usize>) -> Result<D
         by_kind,
         by_file,
     })
+}
+
+/// Find potential callers for a dead symbol (for cross-referencing)
+fn find_potential_callers(
+    index: &SemanticIndex,
+    dead_sym: &crate::trace::Symbol,
+    dead_name: &str,
+) -> Vec<PotentialCaller> {
+    let mut callers = Vec::new();
+
+    // Strategy 1: Find functions in the same file that could call this
+    let same_file_symbols: Vec<_> = index
+        .symbols
+        .iter()
+        .filter(|s| {
+            s.file_id == dead_sym.file_id
+                && s.id != dead_sym.id
+                && matches!(s.symbol_kind(), SymbolKind::Function | SymbolKind::Method)
+        })
+        .collect();
+
+    for caller in same_file_symbols.iter().take(3) {
+        if let Some(caller_name) = index.symbol_name(caller) {
+            if let Some(path) = index.file_path(caller.file_id) {
+                callers.push(PotentialCaller {
+                    name: caller_name.to_string(),
+                    file: path.to_string_lossy().to_string(),
+                    line: caller.start_line,
+                    reason: "Same file - could call this".to_string(),
+                });
+            }
+        }
+    }
+
+    // Strategy 2: Find entry points that could use this
+    for &entry_id in index.entry_points.iter().take(2) {
+        if let Some(entry_sym) = index.symbols.iter().find(|s| s.id == entry_id) {
+            if entry_sym.id != dead_sym.id {
+                if let Some(entry_name) = index.symbol_name(entry_sym) {
+                    if let Some(path) = index.file_path(entry_sym.file_id) {
+                        callers.push(PotentialCaller {
+                            name: entry_name.to_string(),
+                            file: path.to_string_lossy().to_string(),
+                            line: entry_sym.start_line,
+                            reason: "Entry point - could reach this".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Strategy 3: Find token matches (name appears but not as actual reference)
+    if let Some(token_ids) = index.tokens_by_name(dead_name) {
+        for &token_id in token_ids.iter().take(2) {
+            if let Some(token) = index.token(token_id) {
+                // Skip if it's at the definition location
+                if token.file_id != dead_sym.file_id || token.line != dead_sym.start_line {
+                    if let Some(path) = index.file_path(token.file_id) {
+                        callers.push(PotentialCaller {
+                            name: dead_name.to_string(),
+                            file: path.to_string_lossy().to_string(),
+                            line: token.line,
+                            reason: "Token match - name appears here".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    callers
 }
 
 /// Run interactive TUI mode
@@ -2021,6 +2509,8 @@ mod tests {
             cycles: false,
             kind: None,
             r#in: None,
+            symbol_type: None,
+            name: None,
             group_by: None,
             json: true,
             plain: false,
@@ -2032,13 +2522,15 @@ mod tests {
             context: 0,
             limit: None,
             count: false,
+            summary: false,
+            xref: false,
             project: None,
         };
         assert_eq!(args.output_format(), OutputFormat::Json);
     }
 
     #[test]
-    fn test_args_operation() {
+    fn test_args_operations() {
         let args = TraceArgs {
             symbol: Some("test".to_string()),
             direct: false,
@@ -2058,6 +2550,8 @@ mod tests {
             cycles: false,
             kind: None,
             r#in: None,
+            symbol_type: None,
+            name: None,
             group_by: None,
             json: false,
             plain: false,
@@ -2069,17 +2563,21 @@ mod tests {
             context: 0,
             limit: None,
             count: false,
+            summary: false,
+            xref: false,
             project: None,
         };
 
-        match args.operation() {
+        let ops = args.operations();
+        assert_eq!(ops.len(), 1);
+        match &ops[0] {
             TraceOperation::Trace(sym) => assert_eq!(sym, "test"),
             _ => panic!("Expected Trace operation"),
         }
     }
 
     #[test]
-    fn test_args_refs_operation() {
+    fn test_args_refs_operations() {
         let args = TraceArgs {
             symbol: None,
             direct: false,
@@ -2099,6 +2597,8 @@ mod tests {
             cycles: false,
             kind: None,
             r#in: None,
+            symbol_type: None,
+            name: None,
             group_by: None,
             json: false,
             plain: false,
@@ -2110,10 +2610,14 @@ mod tests {
             context: 0,
             limit: None,
             count: false,
+            summary: false,
+            xref: false,
             project: None,
         };
 
-        match args.operation() {
+        let ops = args.operations();
+        assert_eq!(ops.len(), 1);
+        match &ops[0] {
             TraceOperation::Refs { symbol, kind } => {
                 assert_eq!(symbol, "userId");
                 assert!(kind.is_none());
@@ -2123,7 +2627,8 @@ mod tests {
     }
 
     #[test]
-    fn test_args_dead_takes_priority() {
+    fn test_args_composable_operations() {
+        // Test that multiple flags result in multiple operations
         let args = TraceArgs {
             symbol: Some("test".to_string()),
             direct: false,
@@ -2139,10 +2644,12 @@ mod tests {
             impact: None,
             scope: None,
             dead: true,
-            stats: false,
+            stats: true,
             cycles: false,
             kind: None,
             r#in: None,
+            symbol_type: None,
+            name: None,
             group_by: None,
             json: false,
             plain: false,
@@ -2154,13 +2661,27 @@ mod tests {
             context: 0,
             limit: None,
             count: false,
+            summary: false,
+            xref: false,
             project: None,
         };
 
-        match args.operation() {
-            TraceOperation::DeadCode => {}
-            _ => panic!("Expected DeadCode operation"),
-        }
+        let ops = args.operations();
+        // Should have: DeadCode, Stats, Refs, Trace (4 operations)
+        assert_eq!(ops.len(), 4, "Expected 4 operations, got {:?}", ops);
+
+        // Verify all expected operations are present
+        let has_dead = ops.iter().any(|op| matches!(op, TraceOperation::DeadCode));
+        let has_stats = ops.iter().any(|op| matches!(op, TraceOperation::Stats));
+        let has_refs = ops
+            .iter()
+            .any(|op| matches!(op, TraceOperation::Refs { .. }));
+        let has_trace = ops.iter().any(|op| matches!(op, TraceOperation::Trace(_)));
+
+        assert!(has_dead, "Missing DeadCode operation");
+        assert!(has_stats, "Missing Stats operation");
+        assert!(has_refs, "Missing Refs operation");
+        assert!(has_trace, "Missing Trace operation");
     }
 }
 

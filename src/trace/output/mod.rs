@@ -101,6 +101,18 @@ pub struct DeadSymbol {
     pub file: String,
     pub line: u32,
     pub reason: String,
+    /// Cross-reference: potential callers that could use this symbol
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub potential_callers: Vec<PotentialCaller>,
+}
+
+/// A potential caller/reference for dead code cross-referencing
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PotentialCaller {
+    pub name: String,
+    pub file: String,
+    pub line: u32,
+    pub reason: String,
 }
 
 /// Data flow step

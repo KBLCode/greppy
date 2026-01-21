@@ -209,6 +209,7 @@ greppy trace --impact validateUser
 
 # Dead code detection
 greppy trace --dead
+greppy trace --dead --xref             # With potential callers
 
 # Codebase statistics
 greppy trace --stats
@@ -224,16 +225,68 @@ greppy trace <symbol> --dot             # DOT for graph visualization
 greppy trace <symbol> --markdown        # Markdown for documentation
 ```
 
+### Composable Operations
+
+Run multiple analyses in a single command:
+
+```bash
+# Run dead code + stats + cycles together
+greppy trace --dead --stats --cycles
+
+# Filter all operations to a path
+greppy trace --dead --stats --in src/auth
+
+# Summary mode: one-line output per operation
+greppy trace --dead --stats --cycles --summary
+
+# Combined JSON output for tooling
+greppy trace --dead --stats --json
+```
+
+**Summary mode output:**
+```
+DEAD CODE ANALYSIS
+  Dead symbols: 61  (unknown=4, function=16, struct=41)
+
+CODEBASE STATISTICS
+  Files: 5  Symbols: 84  Refs: 1711  Edges: 1688
+
+CIRCULAR DEPENDENCIES
+  Circular deps: 2
+```
+
+### Cross-Reference Dead Code
+
+The `--xref` flag shows potential callers for dead symbols:
+
+```bash
+greppy trace --dead --xref -n 5
+```
+
+Output:
+```
+MessageRequest  src/ai/claude.rs:17  No references or calls found
+    Potential callers:
+      → new  src/ai/claude.rs:66  Same file - could call this
+      → get_access_token  src/ai/claude.rs:75  Same file - could call this
+      → MessageRequest  src/ai/claude.rs:143  Token match - name appears here
+```
+
+This helps you understand *why* code is dead - is it truly unused, or is there a missing call?
+
 ### What grep/ripgrep CAN'T do (but greppy can)
 
 | Feature | grep/ripgrep | greppy |
 |---------|--------------|--------|
 | Impact analysis | No | `--impact` shows callers & affected entry points |
 | Dead code detection | No | `--dead` finds unused symbols |
+| Dead code cross-reference | No | `--dead --xref` shows potential callers |
 | Call chain visualization | No | Shows full invocation paths |
 | Semantic reference filtering | No | `--reads` vs `--writes` vs `--kind call` |
 | Codebase statistics | No | `--stats` shows symbols, call depth, etc. |
 | Circular dependency detection | No | `--cycles` finds import loops |
+| Composable operations | No | `--dead --stats --cycles` runs all at once |
+| Summary mode | No | `--summary` for condensed output |
 
 ---
 
