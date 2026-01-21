@@ -4,6 +4,7 @@
 //! - Phase 1: Collect file paths (small memory footprint)
 //! - Phase 2: Parallel read + chunk with rayon (bounded by thread pool)
 //! - Phase 3: Sequential write to Tantivy with periodic commits
+//! - Phase 4: Build semantic trace index (symbols, calls, references)
 //!
 //! This avoids holding all file contents or chunks in memory at once.
 
@@ -13,6 +14,7 @@ use crate::core::error::Result;
 use crate::core::project::Project;
 use crate::index::{IndexWriter, TantivyIndex};
 use crate::parse::{chunk_file, Chunk};
+use crate::trace::{build_and_save_index, detect_language, is_treesitter_supported};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use std::env;
@@ -134,12 +136,12 @@ pub fn run(args: IndexArgs) -> Result<()> {
     // Final commit
     writer.commit()?;
 
-    let elapsed = start.elapsed();
+    let tantivy_elapsed = start.elapsed();
     let final_file_count = file_count.load(Ordering::Relaxed);
     let final_chunk_count = chunk_count.load(Ordering::Relaxed);
 
-    let chunks_per_sec = if elapsed.as_secs_f64() > 0.0 {
-        final_chunk_count as f64 / elapsed.as_secs_f64()
+    let chunks_per_sec = if tantivy_elapsed.as_secs_f64() > 0.0 {
+        final_chunk_count as f64 / tantivy_elapsed.as_secs_f64()
     } else {
         0.0
     };
@@ -147,16 +149,75 @@ pub fn run(args: IndexArgs) -> Result<()> {
     info!(
         files = final_file_count,
         chunks = final_chunk_count,
-        elapsed_ms = elapsed.as_millis(),
+        elapsed_ms = tantivy_elapsed.as_millis(),
         chunks_per_sec = chunks_per_sec as u64,
-        "Indexing complete"
+        "Text index complete"
     );
 
     println!(
-        "Indexed {} files ({} chunks) in {:.2}s ({:.0} chunks/sec)",
+        "Text index: {} files ({} chunks) in {:.2}s",
         final_file_count,
         final_chunk_count,
-        elapsed.as_secs_f64(),
+        tantivy_elapsed.as_secs_f64(),
+    );
+
+    // =========================================================================
+    // PHASE 4: Build semantic trace index
+    // =========================================================================
+    let trace_start = Instant::now();
+    info!("Building semantic trace index...");
+
+    // Collect files that support tree-sitter for semantic indexing
+    // We need to re-read files for semantic extraction (different from chunking)
+    let semantic_files: Vec<(PathBuf, String)> = file_paths
+        .par_iter()
+        .filter_map(|path| {
+            let lang = detect_language(path);
+            if !is_treesitter_supported(lang) {
+                return None;
+            }
+            match std::fs::read_to_string(path) {
+                Ok(content) => Some((path.clone(), content)),
+                Err(_) => None,
+            }
+        })
+        .collect();
+
+    let semantic_file_count = semantic_files.len();
+
+    if semantic_file_count > 0 {
+        match build_and_save_index(&project.root, &semantic_files) {
+            Ok(stats) => {
+                let trace_elapsed = trace_start.elapsed();
+                info!(
+                    files = stats.files,
+                    symbols = stats.symbols,
+                    tokens = stats.tokens,
+                    edges = stats.edges,
+                    elapsed_ms = trace_elapsed.as_millis(),
+                    "Trace index complete"
+                );
+                println!(
+                    "Trace index: {} files ({} symbols, {} edges) in {:.2}s",
+                    stats.files,
+                    stats.symbols,
+                    stats.edges,
+                    trace_elapsed.as_secs_f64(),
+                );
+            }
+            Err(e) => {
+                tracing::warn!("Failed to build trace index: {}", e);
+                println!("Warning: Trace index build failed: {}", e);
+            }
+        }
+    } else {
+        println!("Trace index: skipped (no supported languages)");
+    }
+
+    let total_elapsed = start.elapsed();
+    println!(
+        "\nTotal: {:.2}s ({:.0} chunks/sec)",
+        total_elapsed.as_secs_f64(),
         chunks_per_sec
     );
 

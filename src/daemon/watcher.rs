@@ -10,6 +10,8 @@
 use crate::core::error::{Error, Result};
 use crate::index::{IndexWriter, TantivyIndex};
 use crate::parse::chunk_file;
+use crate::trace::builder::{remove_file_from_index, update_file_incremental};
+use crate::trace::storage::{load_index, save_index, trace_index_path};
 use notify::{
     event::{CreateKind, ModifyKind, RemoveKind},
     Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
@@ -272,7 +274,22 @@ fn process_project_events_sync(project_path: &Path, events: Vec<FileEvent>) -> R
         "Processing file changes"
     );
 
-    // Open index
+    // Update Tantivy text index
+    update_tantivy_index(project_path, &to_reindex, &to_delete)?;
+
+    // Update trace semantic index
+    update_trace_index(project_path, &to_reindex, &to_delete);
+
+    info!(project = %project_path.display(), "Incremental index update complete");
+    Ok(())
+}
+
+/// Update the Tantivy text search index
+fn update_tantivy_index(
+    project_path: &Path,
+    to_reindex: &HashSet<PathBuf>,
+    to_delete: &HashSet<PathBuf>,
+) -> Result<()> {
     let index = TantivyIndex::open_or_create(project_path)?;
     let mut writer = IndexWriter::new(&index)?;
 
@@ -285,20 +302,96 @@ fn process_project_events_sync(project_path: &Path, events: Vec<FileEvent>) -> R
 
     // Re-index changed files
     for path in to_reindex {
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            let chunks = chunk_file(&path, &content);
+        if let Ok(content) = std::fs::read_to_string(path) {
+            let chunks = chunk_file(path, &content);
             for chunk in &chunks {
                 writer.add_chunk(chunk)?;
             }
-            debug!(path = %path.display(), chunks = chunks.len(), "Re-indexed file");
+            debug!(path = %path.display(), chunks = chunks.len(), "Re-indexed file (tantivy)");
         }
     }
 
     // Commit changes
     writer.commit()?;
 
-    info!(project = %project_path.display(), "Incremental index update complete");
     Ok(())
+}
+
+/// Update the trace semantic index
+///
+/// This loads the existing trace index (if any), applies incremental updates,
+/// and saves the updated index back to disk.
+fn update_trace_index(
+    project_path: &Path,
+    to_reindex: &HashSet<PathBuf>,
+    to_delete: &HashSet<PathBuf>,
+) {
+    let trace_path = trace_index_path(project_path);
+
+    // Try to load existing trace index
+    let mut index = match load_index(&trace_path) {
+        Ok(idx) => idx,
+        Err(e) => {
+            // No trace index exists yet - this is fine, trace may not have been built
+            debug!(
+                project = %project_path.display(),
+                error = %e,
+                "No trace index to update (will be created on next full index)"
+            );
+            return;
+        }
+    };
+
+    let start = std::time::Instant::now();
+    let mut files_updated = 0;
+    let mut files_deleted = 0;
+
+    // Process deletions first
+    for path in to_delete {
+        let removed = remove_file_from_index(&mut index, project_path, path);
+        if removed > 0 {
+            files_deleted += 1;
+            debug!(
+                path = %path.display(),
+                symbols_removed = removed,
+                "Removed from trace index"
+            );
+        }
+    }
+
+    // Process updates/additions
+    for path in to_reindex {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            let result = update_file_incremental(&mut index, project_path, path, &content);
+            files_updated += 1;
+            debug!(
+                path = %path.display(),
+                symbols_added = result.symbols_added,
+                elapsed_ms = result.elapsed_ms,
+                "Updated in trace index"
+            );
+        }
+    }
+
+    // Save the updated index
+    if files_updated > 0 || files_deleted > 0 {
+        if let Err(e) = save_index(&index, &trace_path) {
+            warn!(
+                project = %project_path.display(),
+                error = %e,
+                "Failed to save trace index"
+            );
+        } else {
+            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+            info!(
+                project = %project_path.display(),
+                files_updated = files_updated,
+                files_deleted = files_deleted,
+                elapsed_ms = elapsed_ms,
+                "Trace index updated"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

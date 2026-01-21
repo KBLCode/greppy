@@ -133,19 +133,23 @@ impl SearchQuery {
         let elapsed = start.elapsed();
         let elapsed_ms = elapsed.as_secs_f64() * 1000.0;
 
-        debug!(
-            query = %self.text,
-            results = results.len(),
-            elapsed_ms = elapsed_ms,
-            "Search completed"
-        );
-
-        Ok(SearchResponse {
+        // Build response and deduplicate overlapping chunks
+        let mut response = SearchResponse {
             results,
             query: self.text.clone(),
             elapsed_ms,
             project: "unknown".to_string(), // TODO: Pass project name
-        })
+        };
+        response.deduplicate();
+
+        debug!(
+            query = %self.text,
+            results = response.results.len(),
+            elapsed_ms = elapsed_ms,
+            "Search completed (after dedup)"
+        );
+
+        Ok(response)
     }
 
     /// Build a Tantivy query from the search text

@@ -4,6 +4,7 @@ pub mod daemon;
 pub mod index;
 pub mod login;
 pub mod search;
+pub mod trace;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -39,11 +40,17 @@ AUTHENTICATION:
     Semantic search uses AI to rerank results by relevance. Without login,
     searches fall back to direct BM25 mode automatically.
 
+TRACE (symbol invocation mapping):
+    greppy trace <symbol>             Find all invocation paths
+    greppy trace --refs <symbol>      Find all references
+    greppy trace --dead               Find unused code
+
 EXAMPLES:
     greppy index                      Index current directory
     greppy search "error handling"    Find error handling code
     greppy search -d "TODO" -n 50     Find all TODOs (direct mode)
     greppy search "auth" --json       JSON output for scripting
+    greppy trace validateUser         Trace function invocations
 "#;
 
 /// Sub-millisecond semantic code search
@@ -103,6 +110,10 @@ After logging out, semantic search will fall back to direct BM25 search.
 Run 'greppy login' to authenticate again."
     )]
     Logout,
+
+    /// Trace symbol invocations across codebase
+    #[command(visible_alias = "t")]
+    Trace(trace::TraceArgs),
 }
 
 /// Arguments for the search command

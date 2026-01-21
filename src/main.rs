@@ -29,6 +29,7 @@ async fn main() -> Result<()> {
         Commands::Status => greppy::cli::daemon::status(),
         Commands::Login => greppy::cli::login::run().await,
         Commands::Logout => greppy::cli::login::logout(),
+        Commands::Trace(args) => greppy::cli::trace::run(args).await,
     }
 }
 

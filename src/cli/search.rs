@@ -2,6 +2,7 @@
 
 use crate::ai::{claude::ClaudeClient, gemini::GeminiClient};
 use crate::auth::{self, Provider};
+use crate::cli::login::{get_ollama_client, is_ollama_configured};
 use crate::cli::{OutputFormat, SearchArgs};
 use crate::core::error::Result;
 use crate::core::project::Project;
@@ -66,10 +67,11 @@ async fn run_semantic_search(
     project: &Project,
     format: OutputFormat,
 ) -> Result<()> {
-    // Check which provider is authenticated
+    // Check which provider is authenticated (OAuth or Ollama)
     let providers = auth::get_authenticated_providers();
+    let ollama_configured = is_ollama_configured();
 
-    if providers.is_empty() {
+    if providers.is_empty() && !ollama_configured {
         eprintln!("Not logged in. Run 'greppy login' to enable semantic search.");
         eprintln!("Using direct BM25 search instead.\n");
         return run_direct_search(args, project, format).await;
@@ -105,8 +107,16 @@ async fn run_semantic_search(
         })
         .collect();
 
-    // Call AI to rerank
-    let indices = if providers.contains(&Provider::Anthropic) {
+    // Call AI to rerank - check Ollama first (local), then OAuth providers
+    let indices = if ollama_configured {
+        if let Some(client) = get_ollama_client() {
+            debug!("Using Ollama for reranking");
+            client.rerank(&args.query, &chunks).await?
+        } else {
+            // Fallback to BM25 order
+            (0..chunks.len()).collect()
+        }
+    } else if providers.contains(&Provider::Anthropic) {
         let token = auth::get_anthropic_token()?;
         let client = ClaudeClient::new(token);
         client.rerank(&args.query, &chunks).await?

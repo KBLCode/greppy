@@ -10,6 +10,7 @@ const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 // Cache access token for 50 minutes (tokens typically expire in 1 hour)
+#[allow(dead_code)]
 const TOKEN_CACHE_DURATION: Duration = Duration::from_secs(50 * 60);
 
 #[derive(Debug, Serialize)]
@@ -206,5 +207,141 @@ impl ClaudeClient {
 
         // Fallback: return original order
         Ok((0..chunks.len()).collect())
+    }
+
+    /// Expand a query into related symbol names for trace operations
+    /// Input: "auth" -> Output: ["auth", "login", "authenticate", "session", ...]
+    pub async fn expand_query(&self, query: &str) -> Result<Vec<String>> {
+        use crate::ai::trace_prompts::{
+            build_expansion_prompt, parse_expansion_response, QUERY_EXPANSION_SYSTEM,
+        };
+
+        let access_token = self.get_access_token().await?;
+
+        let request_body = MessageRequest {
+            model: "claude-3-5-haiku-latest".to_string(),
+            max_tokens: 256,
+            system: QUERY_EXPANSION_SYSTEM.to_string(),
+            messages: vec![Message {
+                role: "user".to_string(),
+                content: build_expansion_prompt(query),
+            }],
+        };
+
+        let res = self
+            .client
+            .post(ANTHROPIC_API_URL)
+            .query(&[("beta", "true")])
+            .header("Authorization", format!("Bearer {}", access_token))
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .header("anthropic-beta", "oauth-2025-04-20")
+            .header("User-Agent", "greppy/0.9.0")
+            .header("Content-Type", "application/json")
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(|e| Error::DaemonError {
+                message: format!("API request failed: {}", e),
+            })?;
+
+        if !res.status().is_success() {
+            let text = res.text().await.unwrap_or_default();
+            return Err(Error::DaemonError {
+                message: format!("Claude API Error: {}", text),
+            });
+        }
+
+        let response: MessageResponse = res.json().await.map_err(|e| Error::DaemonError {
+            message: format!("Failed to parse response: {}", e),
+        })?;
+
+        if let Some(error) = response.error {
+            return Err(Error::DaemonError {
+                message: format!("Claude API Error: {}", error.message),
+            });
+        }
+
+        // Parse the expanded symbols from response
+        if let Some(content) = response.content {
+            if let Some(block) = content.first() {
+                if let Some(text) = &block.text {
+                    let symbols = parse_expansion_response(text);
+                    if !symbols.is_empty() {
+                        return Ok(symbols);
+                    }
+                }
+            }
+        }
+
+        // Fallback: return the original query as a single symbol
+        Ok(vec![query.to_string()])
+    }
+
+    /// Rerank trace invocation paths by relevance to query
+    /// Returns indices in order of relevance: [2, 0, 5, 1, ...]
+    pub async fn rerank_trace(&self, query: &str, paths: &[String]) -> Result<Vec<usize>> {
+        use crate::ai::trace_prompts::{
+            build_trace_rerank_prompt, parse_rerank_response, TRACE_RERANK_SYSTEM,
+        };
+
+        let access_token = self.get_access_token().await?;
+
+        let request_body = MessageRequest {
+            model: "claude-3-5-haiku-latest".to_string(),
+            max_tokens: 256,
+            system: TRACE_RERANK_SYSTEM.to_string(),
+            messages: vec![Message {
+                role: "user".to_string(),
+                content: build_trace_rerank_prompt(query, paths),
+            }],
+        };
+
+        let res = self
+            .client
+            .post(ANTHROPIC_API_URL)
+            .query(&[("beta", "true")])
+            .header("Authorization", format!("Bearer {}", access_token))
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .header("anthropic-beta", "oauth-2025-04-20")
+            .header("User-Agent", "greppy/0.9.0")
+            .header("Content-Type", "application/json")
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(|e| Error::DaemonError {
+                message: format!("API request failed: {}", e),
+            })?;
+
+        if !res.status().is_success() {
+            let text = res.text().await.unwrap_or_default();
+            return Err(Error::DaemonError {
+                message: format!("Claude API Error: {}", text),
+            });
+        }
+
+        let response: MessageResponse = res.json().await.map_err(|e| Error::DaemonError {
+            message: format!("Failed to parse response: {}", e),
+        })?;
+
+        if let Some(error) = response.error {
+            return Err(Error::DaemonError {
+                message: format!("Claude API Error: {}", error.message),
+            });
+        }
+
+        // Parse the reranked indices from response
+        if let Some(content) = response.content {
+            if let Some(block) = content.first() {
+                if let Some(text) = &block.text {
+                    let indices = parse_rerank_response(text, paths.len());
+                    if !indices.is_empty() {
+                        return Ok(indices);
+                    }
+                }
+            }
+        }
+
+        // Fallback: return original order
+        Ok((0..paths.len()).collect())
     }
 }

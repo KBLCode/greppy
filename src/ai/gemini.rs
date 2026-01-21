@@ -395,4 +395,162 @@ impl GeminiClient {
         // Fallback: return original order
         Ok((0..chunks.len()).collect())
     }
+
+    /// Expand a query into related symbol names for trace operations
+    /// Input: "auth" -> Output: ["auth", "login", "authenticate", "session", ...]
+    pub async fn expand_query(&self, query: &str) -> Result<Vec<String>> {
+        use crate::ai::trace_prompts::{
+            build_expansion_prompt, parse_expansion_response, QUERY_EXPANSION_SYSTEM,
+        };
+
+        let access_token = self.get_access_token().await?;
+        let project_id = self.get_project_id(&access_token).await?;
+
+        // Build the inner request
+        let inner_request = InnerRequest {
+            contents: vec![Content {
+                role: "user".to_string(),
+                parts: vec![Part {
+                    text: build_expansion_prompt(query),
+                }],
+            }],
+            system_instruction: Some(Content {
+                role: "user".to_string(),
+                parts: vec![Part {
+                    text: QUERY_EXPANSION_SYSTEM.to_string(),
+                }],
+            }),
+        };
+
+        // Wrap for Cloud Code Assist API
+        let request_body = CodeAssistRequest {
+            project: project_id,
+            model: "gemini-2.0-flash".to_string(),
+            request: inner_request,
+        };
+
+        let url = format!("{}/v1internal:generateContent", CODE_ASSIST_BASE);
+
+        let res = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Content-Type", "application/json")
+            .header("User-Agent", "greppy/0.9.0")
+            .header("X-Goog-Api-Client", "greppy/0.9.0")
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(|e| Error::DaemonError {
+                message: format!("API request failed: {}", e),
+            })?;
+
+        if !res.status().is_success() {
+            let text = res.text().await.unwrap_or_default();
+            return Err(Error::DaemonError {
+                message: format!("Gemini API Error: {}", text),
+            });
+        }
+
+        // Cloud Code Assist wraps response in "response" field
+        let wrapper: CodeAssistResponse = res.json().await.map_err(|e| Error::DaemonError {
+            message: format!("Failed to parse response: {}", e),
+        })?;
+
+        // Parse the expanded symbols from response
+        if let Some(response) = wrapper.response {
+            if let Some(candidates) = response.candidates {
+                if let Some(candidate) = candidates.first() {
+                    if let Some(part) = candidate.content.parts.first() {
+                        let symbols = parse_expansion_response(&part.text);
+                        if !symbols.is_empty() {
+                            return Ok(symbols);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: return the original query as a single symbol
+        Ok(vec![query.to_string()])
+    }
+
+    /// Rerank trace invocation paths by relevance to query
+    /// Returns indices in order of relevance: [2, 0, 5, 1, ...]
+    pub async fn rerank_trace(&self, query: &str, paths: &[String]) -> Result<Vec<usize>> {
+        use crate::ai::trace_prompts::{
+            build_trace_rerank_prompt, parse_rerank_response, TRACE_RERANK_SYSTEM,
+        };
+
+        let access_token = self.get_access_token().await?;
+        let project_id = self.get_project_id(&access_token).await?;
+
+        // Build the inner request
+        let inner_request = InnerRequest {
+            contents: vec![Content {
+                role: "user".to_string(),
+                parts: vec![Part {
+                    text: build_trace_rerank_prompt(query, paths),
+                }],
+            }],
+            system_instruction: Some(Content {
+                role: "user".to_string(),
+                parts: vec![Part {
+                    text: TRACE_RERANK_SYSTEM.to_string(),
+                }],
+            }),
+        };
+
+        // Wrap for Cloud Code Assist API
+        let request_body = CodeAssistRequest {
+            project: project_id,
+            model: "gemini-2.0-flash".to_string(),
+            request: inner_request,
+        };
+
+        let url = format!("{}/v1internal:generateContent", CODE_ASSIST_BASE);
+
+        let res = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Content-Type", "application/json")
+            .header("User-Agent", "greppy/0.9.0")
+            .header("X-Goog-Api-Client", "greppy/0.9.0")
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(|e| Error::DaemonError {
+                message: format!("API request failed: {}", e),
+            })?;
+
+        if !res.status().is_success() {
+            let text = res.text().await.unwrap_or_default();
+            return Err(Error::DaemonError {
+                message: format!("Gemini API Error: {}", text),
+            });
+        }
+
+        // Cloud Code Assist wraps response in "response" field
+        let wrapper: CodeAssistResponse = res.json().await.map_err(|e| Error::DaemonError {
+            message: format!("Failed to parse response: {}", e),
+        })?;
+
+        // Parse the reranked indices from response
+        if let Some(response) = wrapper.response {
+            if let Some(candidates) = response.candidates {
+                if let Some(candidate) = candidates.first() {
+                    if let Some(part) = candidate.content.parts.first() {
+                        let indices = parse_rerank_response(&part.text, paths.len());
+                        if !indices.is_empty() {
+                            return Ok(indices);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: return original order
+        Ok((0..paths.len()).collect())
+    }
 }

@@ -12,6 +12,7 @@ pub mod index;
 pub mod output;
 pub mod parse;
 pub mod search;
+pub mod trace;
 
 pub use core::config::Config;
 pub use core::error::{Error, Result};

@@ -16,6 +16,8 @@ pub struct Config {
     pub index: IndexConfig,
     pub cache: CacheConfig,
     #[serde(default)]
+    pub ai: AiConfig,
+    #[serde(default)]
     pub projects: HashMap<String, ProjectConfig>,
 }
 
@@ -64,6 +66,49 @@ pub struct CacheConfig {
     pub max_queries: usize,
 }
 
+/// AI provider configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AiConfig {
+    /// AI provider to use: "claude", "gemini", or "ollama"
+    pub provider: AiProvider,
+    /// Ollama model name (e.g., "codellama", "deepseek-coder", "llama3")
+    pub ollama_model: String,
+    /// Ollama server URL
+    pub ollama_url: String,
+    /// Google OAuth token (for Gemini)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub google_token: Option<String>,
+    /// Anthropic OAuth token (for Claude)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anthropic_token: Option<String>,
+}
+
+/// Supported AI providers
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AiProvider {
+    /// Anthropic Claude (requires OAuth login)
+    #[default]
+    Claude,
+    /// Google Gemini (requires OAuth login)
+    Gemini,
+    /// Local Ollama instance (no auth required)
+    Ollama,
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self {
+            provider: AiProvider::Claude,
+            ollama_model: "codellama".to_string(),
+            ollama_url: "http://localhost:11434".to_string(),
+            google_token: None,
+            anthropic_token: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProjectConfig {
     /// Project-specific ignore patterns
@@ -78,6 +123,7 @@ impl Default for Config {
             ignore: IgnoreConfig::default(),
             index: IndexConfig::default(),
             cache: CacheConfig::default(),
+            ai: AiConfig::default(),
             projects: HashMap::new(),
         }
     }
@@ -148,6 +194,17 @@ impl Config {
         } else {
             Ok(Config::default())
         }
+    }
+
+    /// Save configuration to default location
+    pub fn save(&self) -> Result<()> {
+        Self::ensure_home()?;
+        let config_path = Self::config_path()?;
+        let content = toml::to_string_pretty(self).map_err(|e| Error::ConfigError {
+            message: format!("Failed to serialize config: {}", e),
+        })?;
+        std::fs::write(&config_path, content)?;
+        Ok(())
     }
 
     /// Get the configuration file path

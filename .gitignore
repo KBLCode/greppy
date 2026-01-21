@@ -1,6 +1,7 @@
 /target
 /docs
 /serena
+/.greppy
 **/*.DS_Store
 
 # Environment and secrets

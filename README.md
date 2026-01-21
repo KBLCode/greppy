@@ -9,9 +9,9 @@
  ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝        ╚═╝   
 ```
 
-**Sub-millisecond semantic code search with AI-powered reranking.**
+**Sub-millisecond semantic code search and invocation tracing with AI-powered reranking.**
 
-No cloud indexing. No API keys. Just `greppy search "query"`.
+No cloud indexing. No API keys. Just `greppy search "query"` or `greppy trace symbol`.
 
 ---
 
@@ -137,6 +137,106 @@ greppy search "config" -p ~/projects/myapp
 
 ---
 
+## Trace (Invocation Mapping)
+
+Greppy Trace provides complete codebase invocation mapping - like Sentry's stack traces, but for your entire codebase without running code.
+
+### Basic Trace
+
+```bash
+# Find all invocation paths for a symbol
+greppy trace validateUser
+```
+
+Output:
+```
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  TRACE: validateUser                                                         ║
+║  Defined: utils/validation.ts:8                                              ║
+║  Found: 47 invocation paths from 12 entry points                             ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Path 1/47                                              POST /api/auth/login
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  routes.ts:15          →  POST /api/auth/login
+       │
+  auth.controller.ts:8  →  loginController.handle(req, res)
+       │
+  auth.service.ts:42    →  authService.login(credentials)
+       │
+  validation.ts:8       →  validateUser(user)  ← TARGET
+```
+
+### Trace Commands
+
+```bash
+# Call graph trace (who calls this function)
+greppy trace <symbol>
+
+# Direct mode (no AI, sub-millisecond)
+greppy trace <symbol> -d
+
+# Reference tracing with code context
+greppy trace --refs userId              # All references
+greppy trace --refs userId -c 2         # With 2 lines of context
+greppy trace --refs userId --in src/    # Limit to src/ directory
+greppy trace --refs userId --count      # Just show count
+greppy trace --reads userId             # Reads only
+greppy trace --writes userId            # Writes only
+
+# Call graph analysis
+greppy trace --callers fetchData        # What calls this symbol
+greppy trace --callees fetchData        # What this symbol calls
+
+# Type tracing (where does this type flow)
+greppy trace --type User
+
+# Module tracing (import/export relationships)
+greppy trace --module utils/auth
+greppy trace --cycles                   # Find circular dependencies
+
+# Pattern tracing (find any pattern with regex)
+greppy trace --pattern "TODO:.*"
+greppy trace --pattern "async function" -c 2
+
+# Data flow analysis
+greppy trace --flow password            # Track data from source to sink
+
+# Impact analysis (what breaks if I change this)
+greppy trace --impact validateUser
+
+# Dead code detection
+greppy trace --dead
+
+# Codebase statistics
+greppy trace --stats
+
+# Scope analysis
+greppy trace --scope src/api.ts:42      # What's visible at location
+
+# Output formats
+greppy trace <symbol> --json            # JSON for tooling
+greppy trace <symbol> --plain           # No colors (for pipes)
+greppy trace <symbol> --csv             # CSV for spreadsheets
+greppy trace <symbol> --dot             # DOT for graph visualization
+greppy trace <symbol> --markdown        # Markdown for documentation
+```
+
+### What grep/ripgrep CAN'T do (but greppy can)
+
+| Feature | grep/ripgrep | greppy |
+|---------|--------------|--------|
+| Impact analysis | No | `--impact` shows callers & affected entry points |
+| Dead code detection | No | `--dead` finds unused symbols |
+| Call chain visualization | No | Shows full invocation paths |
+| Semantic reference filtering | No | `--reads` vs `--writes` vs `--kind call` |
+| Codebase statistics | No | `--stats` shows symbols, call depth, etc. |
+| Circular dependency detection | No | `--cycles` finds import loops |
+
+---
+
 ## Authentication
 
 Greppy uses OAuth to authenticate with AI providers. **No API keys needed!**
@@ -230,12 +330,66 @@ TypeScript, JavaScript, Python, Rust, Go, Java, Kotlin, Ruby, PHP, C, C++, C#, S
 
 ## Performance
 
+### Search Performance
+
 | Mode | Latency | Notes |
 |------|---------|-------|
 | Daemon (warm) | <1ms | Index in memory |
 | Direct (warm) | 1-10ms | Index on disk |
 | Direct (cold) | 50-100ms | First query loads index |
 | Semantic (AI) | 500-2000ms | Includes AI reranking |
+
+### Benchmark: greppy vs grep vs ripgrep
+
+Tested on a 75k file, 13.7M line TypeScript codebase:
+
+| Query: "userId" | Results | Time | Notes |
+|-----------------|---------|------|-------|
+| grep            | 2,648   | ~2.5s | Text matching (scans all files) |
+| ripgrep         | 1,296   | ~0.04s | Text matching (parallel, faster) |
+| **greppy**      | 990     | **~0.07s** | **Semantic refs** (knows symbol context) |
+
+| Query: "useState" | Results | Time | Notes |
+|-------------------|---------|------|-------|
+| grep              | 1,449   | ~2.6s | Includes comments, strings |
+| ripgrep           | 1,292   | ~0.04s | Includes comments, strings |
+| **greppy**        | 1,258   | **~0.08s** | **Only actual symbol references** |
+
+**Key difference:** grep/ripgrep find text matches. Greppy finds **semantic symbol references** - it knows when `userId` is a variable vs a string vs a comment.
+
+### Trace Performance
+
+| Query Type | Time | Notes |
+|------------|------|-------|
+| Symbol references | ~70ms | All usages of a symbol |
+| Impact analysis | ~75ms | What breaks if you change this |
+| Dead code detection | ~78ms | Find unused symbols |
+| Codebase statistics | ~600ms | Full analysis |
+| Call chain trace | <1ms | Pre-computed call graph |
+
+### Token Usage: greppy vs AI Reading Files
+
+When AI tools search code, they typically read entire files. Greppy returns only semantic references with targeted context, dramatically reducing token usage.
+
+**Real test on 75k file codebase:**
+
+| Query: "userId" (262 files contain it) | Tokens | Savings |
+|----------------------------------------|--------|---------|
+| AI reads 20 matching files | 43,493 | baseline |
+| greppy --refs -c 2 (50 refs + context) | 3,100 | **93% less** |
+
+| Query: "validateFounderAccess" | Tokens | Savings |
+|--------------------------------|--------|---------|
+| AI reads 4 matching files | 7,659 | baseline |
+| greppy --refs -c 2 | 532 | **93% less** |
+| greppy --impact | 170 | **98% less** |
+
+**Cost savings at $3/1M tokens (Claude):**
+- Reading 20 files: $0.13 per query
+- Using greppy: $0.009 per query
+- **14x cost reduction**
+
+### System Performance
 
 **Indexing speed:** ~17,000 chunks/second
 

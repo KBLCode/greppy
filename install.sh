@@ -184,9 +184,18 @@ post_install() {
     echo "  greppy login              # (Optional) Enable AI reranking"
     echo "  greppy search \"query\"     # Search!"
     echo ""
-    echo -e "${BLUE}Commands:${NC}"
+    echo -e "${BLUE}Search commands:${NC}"
     echo "  greppy search <query>     # Semantic search (AI-powered)"
     echo "  greppy search -d <query>  # Direct BM25 search (no AI)"
+    echo ""
+    echo -e "${BLUE}Trace commands (93% fewer tokens than reading files):${NC}"
+    echo "  greppy trace <symbol>         # Trace invocation paths"
+    echo "  greppy trace --refs <sym> -c2 # Find all references with context"
+    echo "  greppy trace --impact <sym>   # Impact analysis"
+    echo "  greppy trace --dead           # Find unused code"
+    echo "  greppy trace --stats          # Codebase statistics"
+    echo ""
+    echo -e "${BLUE}Other:${NC}"
     echo "  greppy start              # Start background daemon"
     echo "  greppy logout             # Remove credentials"
     echo ""
@@ -209,7 +218,7 @@ show_logo() {
 └──────────────────────────────────────────────────┘
 EOF
     echo ""
-    echo "Sub-millisecond local semantic code search"
+    echo "Sub-millisecond semantic code search & trace"
     echo ""
 }
 
