@@ -1,3 +1,4 @@
+use crate::daemon::events::DaemonEvent;
 use crate::search::SearchResponse;
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +29,8 @@ pub enum Method {
         project: String,
     },
     Stop,
+    /// Subscribe to daemon events (returns a stream)
+    Subscribe,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,6 +64,10 @@ pub enum ResponseResult {
     Stop {
         success: bool,
     },
+    /// Subscribed to events successfully
+    Subscribed,
+    /// An event from the daemon (streamed after Subscribe)
+    Event(DaemonEvent),
     Error {
         message: String,
     },

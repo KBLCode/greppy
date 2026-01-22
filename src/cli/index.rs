@@ -14,9 +14,13 @@ use crate::core::error::Result;
 use crate::core::project::Project;
 use crate::index::{IndexWriter, TantivyIndex};
 use crate::parse::{chunk_file, Chunk};
-use crate::trace::{build_and_save_index, detect_language, is_treesitter_supported};
+use crate::trace::{
+    build_and_save_index, detect_language, find_dead_symbols, is_treesitter_supported, load_index,
+    snapshots::create_snapshot, trace_index_path, SemanticIndex,
+};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -221,7 +225,97 @@ pub fn run(args: IndexArgs) -> Result<()> {
         chunks_per_sec
     );
 
+    // =========================================================================
+    // PHASE 5: Create automatic snapshot
+    // =========================================================================
+    // Only create snapshot if trace index was successfully built
+    if semantic_file_count > 0 {
+        let trace_path = trace_index_path(&project.root);
+        if trace_path.exists() {
+            match load_index(&trace_path) {
+                Ok(index) => {
+                    let dead_symbols = find_dead_symbols(&index);
+                    let cycles_count = count_cycles(&index) as u32;
+
+                    match create_snapshot(
+                        &index,
+                        &project.root,
+                        &project.name,
+                        &dead_symbols.iter().map(|s| s.id).collect(),
+                        cycles_count,
+                        None, // Auto-generated, no custom name
+                    ) {
+                        Ok(_) => {
+                            debug!("Auto-created snapshot after indexing");
+                        }
+                        Err(e) => {
+                            debug!("Failed to create snapshot: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug!("Failed to load trace index for snapshot: {}", e);
+                }
+            }
+        }
+    }
+
     Ok(())
+}
+
+/// Count cycles using DFS (simplified version)
+fn count_cycles(index: &SemanticIndex) -> usize {
+    let mut graph: HashMap<u16, HashSet<u16>> = HashMap::new();
+
+    for edge in &index.edges {
+        if let (Some(from_sym), Some(to_sym)) =
+            (index.symbol(edge.from_symbol), index.symbol(edge.to_symbol))
+        {
+            if from_sym.file_id != to_sym.file_id {
+                graph
+                    .entry(from_sym.file_id)
+                    .or_default()
+                    .insert(to_sym.file_id);
+            }
+        }
+    }
+
+    let mut cycles = 0;
+    let mut visited = HashSet::new();
+    let mut rec_stack = HashSet::new();
+
+    for &node in graph.keys() {
+        if !visited.contains(&node) {
+            cycles += count_cycles_dfs(node, &graph, &mut visited, &mut rec_stack);
+        }
+    }
+
+    cycles
+}
+
+fn count_cycles_dfs(
+    node: u16,
+    graph: &HashMap<u16, HashSet<u16>>,
+    visited: &mut HashSet<u16>,
+    rec_stack: &mut HashSet<u16>,
+) -> usize {
+    visited.insert(node);
+    rec_stack.insert(node);
+
+    let mut cycles = 0;
+
+    if let Some(neighbors) = graph.get(&node) {
+        for &neighbor in neighbors {
+            if !visited.contains(&neighbor) {
+                cycles += count_cycles_dfs(neighbor, graph, visited, rec_stack);
+            } else if rec_stack.contains(&neighbor) {
+                cycles += 1;
+            }
+        }
+    }
+
+    rec_stack.remove(&node);
+    cycles
 }
 
 /// Check if a file is a code file worth indexing

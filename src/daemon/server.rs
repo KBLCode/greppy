@@ -2,6 +2,7 @@ use crate::core::config::Config;
 use crate::core::error::Result;
 use crate::core::project::{Project, ProjectEntry, Registry};
 use crate::daemon::cache::QueryCache;
+use crate::daemon::events::{DaemonEvent, EventBroadcaster, FileAction};
 use crate::daemon::protocol::{Method, ProjectInfo, Request, Response, ResponseResult};
 use crate::daemon::watcher::WatcherManager;
 use crate::index::{IndexSearcher, IndexWriter, TantivyIndex};
@@ -28,6 +29,7 @@ pub struct DaemonState {
     pub cache: RwLock<QueryCache>,
     pub watcher: Mutex<WatcherManager>,
     pub shutdown: broadcast::Sender<()>,
+    pub events: EventBroadcaster,
 }
 
 impl Default for DaemonState {
@@ -45,7 +47,13 @@ impl DaemonState {
             cache: RwLock::new(QueryCache::new()),
             watcher: Mutex::new(WatcherManager::new()),
             shutdown,
+            events: EventBroadcaster::default(),
         }
+    }
+
+    /// Subscribe to daemon events
+    pub fn subscribe_events(&self) -> broadcast::Receiver<DaemonEvent> {
+        self.events.subscribe()
     }
 
     /// Invalidate searcher cache for a project (called after incremental update)
@@ -100,9 +108,37 @@ async fn run_watcher_loop(state: Arc<DaemonState>) {
         .await
         .unwrap_or_default();
 
-        // Invalidate caches for updated projects
-        for project_path in updated_projects {
+        // Invalidate caches and emit events for updated projects
+        for (project_path, update_result) in updated_projects {
             state.invalidate_project(&project_path);
+
+            // Emit file change events for each changed file
+            for path in &update_result.changed_paths {
+                state
+                    .events
+                    .file_changed(&project_path, path, FileAction::Modified);
+            }
+            for path in &update_result.deleted_paths {
+                state
+                    .events
+                    .file_changed(&project_path, path, FileAction::Deleted);
+            }
+
+            // Emit reindex complete event (incremental update)
+            state.events.broadcast(DaemonEvent::ReindexComplete {
+                project: project_path.to_string_lossy().to_string(),
+                files: update_result.files_reindexed + update_result.files_deleted,
+                symbols: 0, // Unknown without reloading full index
+                dead: 0,    // Unknown without reloading full index
+                duration_ms: update_result.elapsed_ms,
+            });
+
+            debug!(
+                project = %project_path.display(),
+                files = update_result.files_reindexed + update_result.files_deleted,
+                elapsed_ms = update_result.elapsed_ms,
+                "Emitted reindex events"
+            );
         }
 
         // Sleep to prevent busy-waiting - watcher debounces internally
@@ -254,6 +290,43 @@ where
             }
         };
 
+        // Special handling for Subscribe - starts streaming events
+        if matches!(request.method, Method::Subscribe) {
+            let request_id = request.id.clone();
+
+            // Send initial confirmation
+            let response = Response {
+                id: request_id.clone(),
+                result: ResponseResult::Subscribed,
+            };
+            let json = serde_json::to_string(&response)? + "\n";
+            writer.write_all(json.as_bytes()).await?;
+
+            // Stream events until connection closes
+            let mut event_rx = state.subscribe_events();
+            loop {
+                match event_rx.recv().await {
+                    Ok(event) => {
+                        let response = Response {
+                            id: request_id.clone(),
+                            result: ResponseResult::Event(event),
+                        };
+                        let json = serde_json::to_string(&response)? + "\n";
+                        if writer.write_all(json.as_bytes()).await.is_err() {
+                            break; // Client disconnected
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        warn!("Event subscriber lagged by {} messages", n);
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        break; // Channel closed
+                    }
+                }
+            }
+            break;
+        }
+
         let response = handle_request(request, &state).await;
         let json = serde_json::to_string(&response)? + "\n";
         writer.write_all(json.as_bytes()).await?;
@@ -289,6 +362,9 @@ async fn handle_request(request: Request, state: &DaemonState) -> Response {
         Method::Forget { project } => handle_forget(&project, state).await,
 
         Method::Stop => ResponseResult::Stop { success: true },
+
+        // Subscribe is handled specially in handle_connection
+        Method::Subscribe => ResponseResult::Subscribed,
     };
 
     Response {

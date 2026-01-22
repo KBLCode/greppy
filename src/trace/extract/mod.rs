@@ -60,6 +60,7 @@ pub enum RefKind {
     TypeAnnotation,
     Import,
     Export,
+    Construction,
 }
 
 impl RefKind {
@@ -71,6 +72,7 @@ impl RefKind {
             Self::TypeAnnotation => "type_annotation",
             Self::Import => "import",
             Self::Export => "export",
+            Self::Construction => "construction",
         }
     }
 }

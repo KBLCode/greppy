@@ -321,6 +321,8 @@ pub enum RefKind {
     Inheritance = 6,
     /// Decorator/attribute usage
     Decorator = 7,
+    /// Construction (struct literal, enum variant, new expression)
+    Construction = 8,
     /// Unknown reference type
     Unknown = 255,
 }
@@ -336,6 +338,7 @@ impl From<u8> for RefKind {
             5 => Self::Export,
             6 => Self::Inheritance,
             7 => Self::Decorator,
+            8 => Self::Construction,
             _ => Self::Unknown,
         }
     }
@@ -399,6 +402,12 @@ impl Reference {
     #[inline]
     pub fn is_write(&self) -> bool {
         self.ref_kind() == RefKind::Write
+    }
+
+    /// Check if this is a construction reference
+    #[inline]
+    pub fn is_construction(&self) -> bool {
+        self.ref_kind() == RefKind::Construction
     }
 }
 
@@ -652,6 +661,7 @@ mod tests {
             RefKind::Export,
             RefKind::Inheritance,
             RefKind::Decorator,
+            RefKind::Construction,
         ] {
             assert_eq!(RefKind::from(kind as u8), kind);
         }

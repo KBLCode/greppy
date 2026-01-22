@@ -31,6 +31,7 @@ async fn main() -> Result<()> {
         Commands::Logout => greppy::cli::login::logout(),
         Commands::Model => greppy::cli::model::run().await,
         Commands::Trace(args) => greppy::cli::trace::run(args).await,
+        Commands::Web(args) => greppy::cli::web::run(args).await,
     }
 }
 

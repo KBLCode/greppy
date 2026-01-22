@@ -12,6 +12,7 @@ use crate::index::{IndexWriter, TantivyIndex};
 use crate::parse::chunk_file;
 use crate::trace::builder::{remove_file_from_index, update_file_incremental};
 use crate::trace::storage::{load_index, save_index, trace_index_path};
+use crate::trace::{find_dead_symbols, snapshots::create_snapshot, SemanticIndex};
 use notify::{
     event::{CreateKind, ModifyKind, RemoveKind},
     Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
@@ -32,6 +33,21 @@ pub enum FileEvent {
     Changed(PathBuf),
     /// File was deleted - needs removal from index
     Deleted(PathBuf),
+}
+
+/// Result of processing file events for a project
+#[derive(Debug, Clone, Default)]
+pub struct UpdateResult {
+    /// Number of files reindexed
+    pub files_reindexed: usize,
+    /// Number of files deleted
+    pub files_deleted: usize,
+    /// Paths that were changed
+    pub changed_paths: Vec<PathBuf>,
+    /// Paths that were deleted
+    pub deleted_paths: Vec<PathBuf>,
+    /// Processing time in milliseconds
+    pub elapsed_ms: f64,
 }
 
 /// Manages file watchers for multiple projects
@@ -74,8 +90,8 @@ impl WatcherManager {
     }
 
     /// Process pending events synchronously (for use in spawn_blocking)
-    /// Returns list of projects that were updated
-    pub fn process_events_sync(&mut self) -> Vec<PathBuf> {
+    /// Returns list of projects that were updated with their update results
+    pub fn process_events_sync(&mut self) -> Vec<(PathBuf, UpdateResult)> {
         let mut pending: HashMap<PathBuf, Vec<FileEvent>> = HashMap::new();
         let debounce = Duration::from_millis(DEBOUNCE_MS);
 
@@ -102,10 +118,13 @@ impl WatcherManager {
         // Process each project's events
         let mut updated = Vec::new();
         for (project_path, events) in pending {
-            if let Err(e) = process_project_events_sync(&project_path, events) {
-                warn!(project = %project_path.display(), error = %e, "Failed to process events");
-            } else {
-                updated.push(project_path);
+            match process_project_events_sync(&project_path, events) {
+                Ok(result) => {
+                    updated.push((project_path, result));
+                }
+                Err(e) => {
+                    warn!(project = %project_path.display(), error = %e, "Failed to process events");
+                }
             }
         }
 
@@ -245,7 +264,12 @@ fn is_indexable_file(path: &Path) -> bool {
 }
 
 /// Process accumulated events for a project (synchronous version)
-fn process_project_events_sync(project_path: &Path, events: Vec<FileEvent>) -> Result<()> {
+fn process_project_events_sync(
+    project_path: &Path,
+    events: Vec<FileEvent>,
+) -> Result<UpdateResult> {
+    let start = std::time::Instant::now();
+
     // Deduplicate events - if a file was changed multiple times, only process once
     let mut to_reindex: HashSet<PathBuf> = HashSet::new();
     let mut to_delete: HashSet<PathBuf> = HashSet::new();
@@ -264,7 +288,7 @@ fn process_project_events_sync(project_path: &Path, events: Vec<FileEvent>) -> R
     }
 
     if to_reindex.is_empty() && to_delete.is_empty() {
-        return Ok(());
+        return Ok(UpdateResult::default());
     }
 
     info!(
@@ -280,8 +304,25 @@ fn process_project_events_sync(project_path: &Path, events: Vec<FileEvent>) -> R
     // Update trace semantic index
     update_trace_index(project_path, &to_reindex, &to_delete);
 
-    info!(project = %project_path.display(), "Incremental index update complete");
-    Ok(())
+    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    let result = UpdateResult {
+        files_reindexed: to_reindex.len(),
+        files_deleted: to_delete.len(),
+        changed_paths: to_reindex.into_iter().collect(),
+        deleted_paths: to_delete.into_iter().collect(),
+        elapsed_ms,
+    };
+
+    info!(
+        project = %project_path.display(),
+        files_reindexed = result.files_reindexed,
+        files_deleted = result.files_deleted,
+        elapsed_ms = result.elapsed_ms,
+        "Incremental index update complete"
+    );
+
+    Ok(result)
 }
 
 /// Update the Tantivy text search index
@@ -390,8 +431,86 @@ fn update_trace_index(
                 elapsed_ms = elapsed_ms,
                 "Trace index updated"
             );
+
+            // Create automatic snapshot after incremental update
+            let dead_symbols = find_dead_symbols(&index);
+            let cycles_count = count_cycles(&index) as u32;
+            let project_name = project_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown");
+
+            if let Err(e) = create_snapshot(
+                &index,
+                project_path,
+                project_name,
+                &dead_symbols.iter().map(|s| s.id).collect(),
+                cycles_count,
+                None, // Auto-generated, no custom name
+            ) {
+                debug!(
+                    project = %project_path.display(),
+                    error = %e,
+                    "Failed to create snapshot"
+                );
+            }
         }
     }
+}
+
+/// Count cycles using DFS (simplified version)
+fn count_cycles(index: &SemanticIndex) -> usize {
+    let mut graph: HashMap<u16, HashSet<u16>> = HashMap::new();
+
+    for edge in &index.edges {
+        if let (Some(from_sym), Some(to_sym)) =
+            (index.symbol(edge.from_symbol), index.symbol(edge.to_symbol))
+        {
+            if from_sym.file_id != to_sym.file_id {
+                graph
+                    .entry(from_sym.file_id)
+                    .or_default()
+                    .insert(to_sym.file_id);
+            }
+        }
+    }
+
+    let mut cycles = 0;
+    let mut visited = HashSet::new();
+    let mut rec_stack = HashSet::new();
+
+    for &node in graph.keys() {
+        if !visited.contains(&node) {
+            cycles += count_cycles_dfs(node, &graph, &mut visited, &mut rec_stack);
+        }
+    }
+
+    cycles
+}
+
+fn count_cycles_dfs(
+    node: u16,
+    graph: &HashMap<u16, HashSet<u16>>,
+    visited: &mut HashSet<u16>,
+    rec_stack: &mut HashSet<u16>,
+) -> usize {
+    visited.insert(node);
+    rec_stack.insert(node);
+
+    let mut cycles = 0;
+
+    if let Some(neighbors) = graph.get(&node) {
+        for &neighbor in neighbors {
+            if !visited.contains(&neighbor) {
+                cycles += count_cycles_dfs(neighbor, graph, visited, rec_stack);
+            } else if rec_stack.contains(&neighbor) {
+                cycles += 1;
+            }
+        }
+    }
+
+    rec_stack.remove(&node);
+    cycles
 }
 
 #[cfg(test)]

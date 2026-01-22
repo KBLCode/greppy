@@ -105,9 +105,9 @@ impl SemanticIndexBuilder {
             "Extracted"
         );
 
-        // Add symbols
+        // Add symbols with file path context for entry point detection
         for sym in &data.symbols {
-            self.add_symbol(file_id, sym);
+            self.add_symbol_with_path(file_id, sym, Some(&rel_path));
         }
 
         // Add tokens
@@ -125,10 +125,58 @@ impl SemanticIndexBuilder {
         for call in &data.calls {
             self.add_call_token(file_id, call);
         }
+
+        // Add construction references
+        for ref_item in &data.references {
+            self.add_construction_reference(file_id, ref_item);
+        }
     }
 
-    /// Add a symbol to the index
-    fn add_symbol(&mut self, file_id: u16, extracted: &ExtractedSymbol) {
+    /// Add a construction reference to the index
+    fn add_construction_reference(
+        &mut self,
+        file_id: u16,
+        extracted: &super::extract::ExtractedRef,
+    ) {
+        // Only process construction references
+        if extracted.kind != super::extract::RefKind::Construction {
+            return;
+        }
+
+        let id = self.next_token_id;
+        self.next_token_id += 1;
+
+        let name_offset = self.index.strings.intern(&extracted.name);
+
+        // Create a token for the construction site
+        let token = Token::new(
+            id,
+            name_offset,
+            file_id,
+            extracted.line,
+            extracted.column,
+            TokenKind::Type,
+            0,
+        );
+
+        self.index.add_token(token, &extracted.name);
+
+        // Try to find the symbol being constructed and add a reference
+        if let Some(target_ids) = self.symbol_lookup.get(&extracted.name) {
+            for &target_id in target_ids {
+                self.index
+                    .add_reference(Reference::new(id, target_id, RefKind::Construction));
+            }
+        }
+    }
+
+    /// Add a symbol with file path context for entry point detection
+    fn add_symbol_with_path(
+        &mut self,
+        file_id: u16,
+        extracted: &ExtractedSymbol,
+        file_path: Option<&Path>,
+    ) {
         let id = self.next_symbol_id;
         self.next_symbol_id += 1;
 
@@ -149,7 +197,7 @@ impl SemanticIndexBuilder {
             super::extract::SymbolKind::Module => SymbolKind::Module,
             // Trait maps to Interface (closest semantic match)
             super::extract::SymbolKind::Trait => SymbolKind::Interface,
-            // Impl maps to Unknown (no direct equivalent)
+            // Impl blocks are not tracked as standalone symbols
             super::extract::SymbolKind::Impl => SymbolKind::Unknown,
         };
 
@@ -161,8 +209,11 @@ impl SemanticIndexBuilder {
         if extracted.is_async {
             flags |= SymbolFlags::IS_ASYNC;
         }
-        // Mark exported functions as potential entry points
-        if extracted.is_exported && matches!(kind, SymbolKind::Function | SymbolKind::Method) {
+
+        // Detect entry points using multiple heuristics
+        let is_entry_point =
+            self.detect_entry_point(&extracted.name, kind, extracted.is_exported, file_path);
+        if is_entry_point {
             flags |= SymbolFlags::IS_ENTRY_POINT;
         }
 
@@ -183,6 +234,82 @@ impl SemanticIndexBuilder {
             .entry(extracted.name.clone())
             .or_default()
             .push(id);
+    }
+
+    /// Detect if a symbol is an entry point based on various heuristics
+    fn detect_entry_point(
+        &self,
+        name: &str,
+        kind: SymbolKind,
+        is_exported: bool,
+        file_path: Option<&Path>,
+    ) -> bool {
+        // Only functions and methods can be entry points
+        if !matches!(kind, SymbolKind::Function | SymbolKind::Method) {
+            return false;
+        }
+
+        // main() is always an entry point
+        if name == "main" {
+            return true;
+        }
+
+        // Exported functions/methods are entry points
+        if is_exported {
+            return true;
+        }
+
+        // Check file path patterns for entry points
+        if let Some(path) = file_path {
+            let path_str = path.to_string_lossy().to_lowercase();
+            let file_name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+
+            // Rust: public items in lib.rs are entry points
+            if file_name == "lib.rs" {
+                return true;
+            }
+
+            // Test files: test functions are entry points
+            if path_str.contains("test")
+                || path_str.contains("spec")
+                || file_name.starts_with("test_")
+                || file_name.ends_with("_test.rs")
+            {
+                return true;
+            }
+
+            // Benchmark files
+            if path_str.contains("bench") {
+                return true;
+            }
+
+            // TypeScript/JavaScript: index files and handlers
+            if file_name == "index.ts"
+                || file_name == "index.js"
+                || file_name == "index.tsx"
+                || file_name == "index.jsx"
+            {
+                return true;
+            }
+
+            // Check for common handler patterns
+            if matches!(
+                name,
+                "handler" | "default" | "GET" | "POST" | "PUT" | "DELETE" | "PATCH"
+            ) {
+                return true;
+            }
+        }
+
+        // Python: test_ prefixed functions are entry points
+        if name.starts_with("test_") {
+            return true;
+        }
+
+        false
     }
 
     /// Add a token to the index
@@ -410,9 +537,9 @@ pub fn build_index_parallel(project_root: &Path, files: &[(PathBuf, String)]) ->
                 .to_path_buf();
             let file_id = builder.index.add_file(rel_path.clone());
 
-            // Add symbols
+            // Add symbols with file path for entry point detection
             for sym in &data.symbols {
-                builder.add_symbol(file_id, sym);
+                builder.add_symbol_with_path(file_id, sym, Some(&rel_path));
             }
 
             // Add tokens
@@ -428,6 +555,11 @@ pub fn build_index_parallel(project_root: &Path, files: &[(PathBuf, String)]) ->
             // Add calls
             for call in &data.calls {
                 builder.add_call_token(file_id, call);
+            }
+
+            // Add construction references
+            for ref_item in &data.references {
+                builder.add_construction_reference(file_id, ref_item);
             }
         }
     }
@@ -572,7 +704,7 @@ pub fn update_file_incremental(
     let mut new_symbol_ids: Vec<u32> = Vec::with_capacity(data.symbols.len());
     let mut symbol_lookup: HashMap<String, Vec<u32>> = HashMap::new();
 
-    // Add symbols
+    // Add symbols with entry point detection
     for sym in &data.symbols {
         let id = index.next_symbol_id();
         let name_offset = index.strings.intern(&sym.name);
@@ -590,7 +722,7 @@ pub fn update_file_incremental(
             super::extract::SymbolKind::Module => SymbolKind::Module,
             // Trait maps to Interface (closest semantic match)
             super::extract::SymbolKind::Trait => SymbolKind::Interface,
-            // Impl maps to Unknown (no direct equivalent)
+            // Impl blocks are not tracked as standalone symbols
             super::extract::SymbolKind::Impl => SymbolKind::Unknown,
         };
 
@@ -601,7 +733,11 @@ pub fn update_file_incremental(
         if sym.is_async {
             flags |= SymbolFlags::IS_ASYNC;
         }
-        if sym.is_exported && matches!(kind, SymbolKind::Function | SymbolKind::Method) {
+
+        // Detect entry points using the same logic as the builder
+        let is_entry_point =
+            detect_entry_point_standalone(&sym.name, kind, sym.is_exported, Some(&rel_path));
+        if is_entry_point {
             flags |= SymbolFlags::IS_ENTRY_POINT;
         }
 
@@ -715,6 +851,40 @@ pub fn update_file_incremental(
         }
     }
 
+    // Add construction references
+    for ref_item in &data.references {
+        if ref_item.kind != super::extract::RefKind::Construction {
+            continue;
+        }
+
+        let token_id = index.next_token_id();
+        let name_offset = index.strings.intern(&ref_item.name);
+
+        let token = Token::new(
+            token_id,
+            name_offset,
+            file_id,
+            ref_item.line,
+            ref_item.column,
+            TokenKind::Type,
+            0,
+        );
+        index.add_token(token, &ref_item.name);
+
+        // Find target symbols
+        let target_ids: Vec<u32> = if let Some(ids) = symbol_lookup.get(&ref_item.name) {
+            ids.clone()
+        } else if let Some(ids) = index.symbols_by_name(&ref_item.name) {
+            ids.to_vec()
+        } else {
+            Vec::new()
+        };
+
+        for &target_id in &target_ids {
+            index.add_reference(Reference::new(token_id, target_id, RefKind::Construction));
+        }
+    }
+
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
 
     debug!(
@@ -763,6 +933,81 @@ pub fn remove_file_from_index(
         debug!(file = %rel_path.display(), "File not in index, nothing to remove");
         0
     }
+}
+
+/// Standalone entry point detection for incremental updates
+fn detect_entry_point_standalone(
+    name: &str,
+    kind: SymbolKind,
+    is_exported: bool,
+    file_path: Option<&Path>,
+) -> bool {
+    // Only functions and methods can be entry points
+    if !matches!(kind, SymbolKind::Function | SymbolKind::Method) {
+        return false;
+    }
+
+    // main() is always an entry point
+    if name == "main" {
+        return true;
+    }
+
+    // Exported functions/methods are entry points
+    if is_exported {
+        return true;
+    }
+
+    // Check file path patterns for entry points
+    if let Some(path) = file_path {
+        let path_str = path.to_string_lossy().to_lowercase();
+        let file_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+
+        // Rust: public items in lib.rs are entry points
+        if file_name == "lib.rs" {
+            return true;
+        }
+
+        // Test files: test functions are entry points
+        if path_str.contains("test")
+            || path_str.contains("spec")
+            || file_name.starts_with("test_")
+            || file_name.ends_with("_test.rs")
+        {
+            return true;
+        }
+
+        // Benchmark files
+        if path_str.contains("bench") {
+            return true;
+        }
+
+        // TypeScript/JavaScript: index files and handlers
+        if file_name == "index.ts"
+            || file_name == "index.js"
+            || file_name == "index.tsx"
+            || file_name == "index.jsx"
+        {
+            return true;
+        }
+
+        // Check for common handler patterns
+        if matches!(
+            name,
+            "handler" | "default" | "GET" | "POST" | "PUT" | "DELETE" | "PATCH"
+        ) {
+            return true;
+        }
+    }
+
+    // Python: test_ prefixed functions are entry points
+    if name.starts_with("test_") {
+        return true;
+    }
+
+    false
 }
 
 /// Find the symbol containing a given line in a specific file

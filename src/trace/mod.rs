@@ -14,6 +14,7 @@ pub mod context;
 pub mod extract;
 pub mod index;
 pub mod output;
+pub mod snapshots;
 pub mod storage;
 pub mod traverse;
 pub mod types;
@@ -82,3 +83,13 @@ pub use builder::{build_and_save_index, build_index_parallel, BuildStats, Semant
 // =============================================================================
 
 pub use context::{CacheStats, CodeContext, ContextBuilder, FileCache};
+
+// =============================================================================
+// RE-EXPORTS: Snapshots (snapshots.rs)
+// =============================================================================
+
+pub use snapshots::{
+    cleanup_snapshots, compare_snapshots, create_snapshot, delete_snapshot, latest_snapshot,
+    list_snapshots, load_snapshot, snapshots_dir, FileMetrics, Snapshot, SnapshotComparison,
+    SnapshotDiff, SnapshotList, SnapshotMetrics, SnapshotSummary,
+};

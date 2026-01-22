@@ -6,6 +6,7 @@ pub mod login;
 pub mod model;
 pub mod search;
 pub mod trace;
+pub mod web;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -134,6 +135,10 @@ Profiles are saved in ~/.config/greppy/config.toml")]
     /// Trace symbol invocations across codebase
     #[command(visible_alias = "t")]
     Trace(trace::TraceArgs),
+
+    /// Launch web UI for visual codebase exploration
+    #[command(visible_alias = "w")]
+    Web(web::WebArgs),
 }
 
 /// Arguments for the search command

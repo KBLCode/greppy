@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>greppy web</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app">
+    <div class="streamer-mode-banner">STREAMER MODE ACTIVE - Sensitive paths hidden</div>
+    <!-- HEADER -->
+    <header id="header">
+      <div class="logo">
+        <pre class="ascii-logo"> ██████╗ ██████╗ ███████╗██████╗ ██████╗ ██╗   ██╗
+██╔════╝ ██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝
+██║  ███╗██████╔╝█████╗  ██████╔╝██████╔╝ ╚████╔╝ 
+██║   ██║██╔══██╗██╔══╝  ██╔═══╝ ██╔═══╝   ╚██╔╝  
+╚██████╔╝██║  ██║███████╗██║     ██║        ██║   
+ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝        ╚═╝</pre>
+      </div>
+      <div class="header-right">
+        <div id="project-selector-container" class="dropdown-container project-dropdown"></div>
+        <button id="settings-btn" class="btn-icon settings-btn" title="Settings (Ctrl+,)">&#9881;</button>
+      </div>
+    </header>
+
+    <!-- SETTINGS MODAL -->
+    <div id="settings-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <span class="modal-title">SETTINGS</span>
+          <button id="settings-close" class="btn-icon">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="settings-section">
+            <div class="settings-label">STREAMER MODE</div>
+            <div class="settings-row">
+              <label class="toggle">
+                <input type="checkbox" id="setting-streamer-mode">
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="settings-description">Hide sensitive data</span>
+            </div>
+            <div class="settings-hint">Obscures: .env, credentials, API keys, tokens, secrets</div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-label">HIDDEN PATTERNS</div>
+            <textarea id="setting-hidden-patterns" class="settings-textarea" rows="5" placeholder=".env*&#10;*secret*&#10;*credential*"></textarea>
+            <div class="settings-hint">Glob patterns for files to hide (one per line)</div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-label">DISPLAY</div>
+            <div class="settings-row">
+              <label class="toggle">
+                <input type="checkbox" id="setting-dead-badges" checked>
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="settings-description">Show dead code badges</span>
+            </div>
+            <div class="settings-row">
+              <label class="toggle">
+                <input type="checkbox" id="setting-cycle-indicators" checked>
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="settings-description">Show cycle indicators</span>
+            </div>
+            <div class="settings-row">
+              <label class="toggle">
+                <input type="checkbox" id="setting-compact-mode">
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="settings-description">Compact mode</span>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-label">PERFORMANCE</div>
+            <div class="settings-row">
+              <span class="settings-field-label">Max graph nodes:</span>
+              <input type="number" id="setting-max-graph-nodes" class="settings-input" min="10" max="500" value="100">
+            </div>
+            <div class="settings-row">
+              <span class="settings-field-label">Max list items:</span>
+              <input type="number" id="setting-max-list-items" class="settings-input" min="50" max="2000" value="500">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="settings-save" class="btn btn-primary">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TOOLBAR -->
+    <nav id="toolbar">
+      <div class="toolbar-left">
+        <span class="toolbar-label">VIEW</span>
+        <div class="btn-group">
+          <button class="btn active" data-view="graph">graph</button>
+          <button class="btn" data-view="list">list</button>
+          <button class="btn" data-view="tables">data</button>
+          <button class="btn" data-view="tree">tree</button>
+          <button class="btn" data-view="stats">stats</button>
+          <button class="btn" data-view="cycles">cycles</button>
+          <button class="btn" data-view="timeline">timeline</button>
+        </div>
+      </div>
+      <div class="toolbar-right">
+        <div id="search-bar-container"></div>
+        <div id="quick-filters-container"></div>
+      </div>
+    </nav>
+
+    <!-- ACTIVE FILTERS BAR -->
+    <div id="active-filters-container"></div>
+
+    <!-- MAIN CANVAS -->
+    <main id="canvas">
+      <div id="view-graph" class="view active">
+        <svg id="graph-svg"></svg>
+      </div>
+      <div id="view-list" class="view">
+        <div id="list-container"></div>
+      </div>
+      <div id="view-stats" class="view">
+        <div id="stats-container"></div>
+      </div>
+      <div id="view-tree" class="view">
+        <div class="tree-layout">
+          <div class="tree-sidebar">
+            <div class="tree-sidebar-header">
+              <span class="tree-sidebar-title">FILES</span>
+              <span id="tree-file-count" class="tree-file-count">0</span>
+            </div>
+            <div id="tree-content" class="tree-content"></div>
+          </div>
+          <div class="tree-main">
+            <div id="tree-main-content" class="tree-main-content">
+              <div class="tree-main-empty">
+                <span class="empty-icon">&#128193;</span>
+                <span>Select a file to view symbols</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="view-tables" class="view">
+        <div id="tables-container"></div>
+      </div>
+      <div id="view-cycles" class="view">
+        <div id="cycles-container"></div>
+      </div>
+      <div id="view-timeline" class="view">
+        <div id="timeline-container"></div>
+      </div>
+    </main>
+
+    <!-- DETAIL PANEL -->
+    <aside id="detail" class="collapsed">
+      <div class="detail-header">
+        <span id="detail-title">No selection</span>
+        <button id="detail-close" class="btn-icon">×</button>
+      </div>
+      <div id="detail-content">
+        <p class="text-dim">Click a symbol to see details</p>
+      </div>
+    </aside>
+
+    <!-- STATUS BAR -->
+    <footer id="status">
+      <div class="status-left">
+        <span id="status-connection" class="status-connection">
+          <span class="status-dot status-ok">●</span> connected
+        </span>
+        <span class="stat-sep">│</span>
+        <span class="stat"><span id="stat-files">-</span> files</span>
+        <span class="stat-sep">│</span>
+        <span class="stat"><span id="stat-symbols">-</span> symbols</span>
+        <span class="stat-sep">│</span>
+        <span class="stat dead"><span id="stat-dead">-</span> dead</span>
+        <span class="stat-sep">│</span>
+        <span class="stat warn"><span id="stat-cycles">-</span> cycles</span>
+      </div>
+      <div class="status-right">
+        <span id="status-index" class="text-dim">indexed -</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script type="module">
+    import('/app.js').catch(function(err) {
+      console.error('Failed to load app:', err);
+      document.body.innerHTML = '<pre style="color:red;padding:20px;">Load error: ' + err.message + '</pre>';
+    });
+  </script>
+</body>
+</html>

@@ -13,8 +13,8 @@
 //! @module trace/extract/treesitter
 
 use super::{
-    ExtractError, ExtractedCall, ExtractedData, ExtractedScope, ExtractedSymbol, ExtractedToken,
-    ExtractionMethod, ScopeKind, SymbolKind, TokenKind,
+    ExtractError, ExtractedCall, ExtractedData, ExtractedRef, ExtractedScope, ExtractedSymbol,
+    ExtractedToken, ExtractionMethod, RefKind, ScopeKind, SymbolKind, TokenKind,
 };
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
@@ -81,10 +81,11 @@ fn class_query(language: &str) -> &'static str {
         "typescript" | "javascript" => "",
         "python" => "(class_definition name: (identifier) @name) @class",
         "rust" => {
+            // Note: impl blocks are intentionally NOT extracted as symbols
+            // They are implementation details, not standalone semantic entities
             "(struct_item name: (type_identifier) @name) @struct
 (enum_item name: (type_identifier) @name) @enum
-(trait_item name: (type_identifier) @name) @trait
-(impl_item type: (type_identifier) @name) @impl"
+(trait_item name: (type_identifier) @name) @trait"
         }
         "go" => {
             "(type_declaration (type_spec name: (type_identifier) @name type: (struct_type))) @struct
@@ -113,6 +114,33 @@ fn call_query(language: &str) -> &'static str {
         "go" => {
             "(call_expression function: (identifier) @callee) @call
 (call_expression function: (selector_expression field: (field_identifier) @callee)) @method_call"
+        }
+        _ => "",
+    }
+}
+
+/// Query for extracting construction patterns (struct literals, enum variants, new expressions)
+fn construction_query(language: &str) -> &'static str {
+    match language {
+        "typescript" | "javascript" => {
+            // new ClassName()
+            "(new_expression constructor: (identifier) @constructed_type) @construction"
+        }
+        "python" => {
+            // ClassName() - Python class instantiation looks like a function call
+            // We detect it by checking if the callee starts with uppercase
+            ""
+        }
+        "rust" => {
+            // Struct literal: MyStruct { field: value }
+            // Enum variant: MyEnum::Variant or MyEnum::Variant { field }
+            // Tuple struct: MyStruct(value)
+            "(struct_expression name: (type_identifier) @constructed_type) @construction
+(scoped_identifier path: (identifier) @constructed_type) @enum_usage"
+        }
+        "go" => {
+            // Go struct literal: MyStruct{}
+            "(composite_literal type: (type_identifier) @constructed_type) @construction"
         }
         _ => "",
     }
@@ -151,6 +179,11 @@ pub fn extract(content: &str, language: &str) -> Result<ExtractedData, ExtractEr
 
     // Extract function calls
     extract_calls(&tree, source, language, &mut data)?;
+
+    // Extract construction patterns (struct literals, enum variants, etc.)
+    if let Err(e) = extract_constructions(&tree, source, language, &mut data) {
+        tracing::debug!("Construction extraction skipped for {}: {}", language, e);
+    }
 
     // Build scope tree
     extract_scopes(&tree, &mut data)?;
@@ -312,11 +345,7 @@ fn extract_classes(
                     end_line = node.end_position().row as u32 + 1;
                     end_col = node.end_position().column as u16;
                 }
-                "impl" => {
-                    kind = SymbolKind::Impl;
-                    end_line = node.end_position().row as u32 + 1;
-                    end_col = node.end_position().column as u16;
-                }
+                // Note: impl blocks are NOT extracted - see comment in class_query()
                 _ => {}
             }
         }
@@ -399,6 +428,138 @@ fn extract_calls(
     }
 
     Ok(())
+}
+
+/// Extract construction patterns (struct literals, enum variants, new expressions)
+fn extract_constructions(
+    tree: &Tree,
+    source: &[u8],
+    language: &str,
+    data: &mut ExtractedData,
+) -> Result<(), ExtractError> {
+    let query_str = construction_query(language);
+    if query_str.is_empty() {
+        return Ok(());
+    }
+
+    let lang = get_language(language)?;
+    let query = Query::new(&lang, query_str).map_err(|e| ExtractError::ParseFailed {
+        language: language.to_string(),
+        message: format!("Invalid construction query: {}", e),
+    })?;
+
+    let mut cursor = QueryCursor::new();
+    let mut matches = cursor.matches(&query, tree.root_node(), source);
+
+    while let Some(m) = matches.next() {
+        let mut constructed_type: Option<String> = None;
+        let mut line = 0u32;
+        let mut column = 0u16;
+
+        for capture in m.captures {
+            let node = capture.node;
+            let capture_name = query.capture_names()[capture.index as usize];
+
+            match capture_name {
+                "constructed_type" => {
+                    constructed_type = node.utf8_text(source).ok().map(|s| s.to_string());
+                    line = node.start_position().row as u32 + 1;
+                    column = node.start_position().column as u16;
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(type_name) = constructed_type {
+            // Skip primitive types and very short names
+            if type_name.len() >= 2 && !is_primitive_type(&type_name, language) {
+                data.references.push(ExtractedRef {
+                    name: type_name,
+                    kind: RefKind::Construction,
+                    line,
+                    column,
+                    containing_symbol: None,
+                });
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Check if a type name is a primitive type
+fn is_primitive_type(name: &str, language: &str) -> bool {
+    match language {
+        "rust" => {
+            matches!(
+                name,
+                "i8" | "i16"
+                    | "i32"
+                    | "i64"
+                    | "i128"
+                    | "isize"
+                    | "u8"
+                    | "u16"
+                    | "u32"
+                    | "u64"
+                    | "u128"
+                    | "usize"
+                    | "f32"
+                    | "f64"
+                    | "bool"
+                    | "char"
+                    | "str"
+                    | "Self"
+            )
+        }
+        "typescript" | "javascript" => {
+            matches!(
+                name,
+                "string"
+                    | "number"
+                    | "boolean"
+                    | "null"
+                    | "undefined"
+                    | "any"
+                    | "void"
+                    | "never"
+                    | "object"
+                    | "Array"
+                    | "Object"
+                    | "String"
+                    | "Number"
+                    | "Boolean"
+            )
+        }
+        "python" => {
+            matches!(
+                name,
+                "int" | "float" | "str" | "bool" | "list" | "dict" | "set" | "tuple" | "None"
+            )
+        }
+        "go" => {
+            matches!(
+                name,
+                "int"
+                    | "int8"
+                    | "int16"
+                    | "int32"
+                    | "int64"
+                    | "uint"
+                    | "uint8"
+                    | "uint16"
+                    | "uint32"
+                    | "uint64"
+                    | "float32"
+                    | "float64"
+                    | "bool"
+                    | "string"
+                    | "byte"
+                    | "rune"
+            )
+        }
+        _ => false,
+    }
 }
 
 /// Build scope tree from AST

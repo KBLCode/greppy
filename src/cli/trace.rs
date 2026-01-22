@@ -849,6 +849,7 @@ async fn find_refs_cmd(
                 RefKind::TypeAnnotation => ReferenceKind::TypeAnnotation,
                 RefKind::Import => ReferenceKind::Import,
                 RefKind::Export => ReferenceKind::Export,
+                RefKind::Construction => ReferenceKind::Call, // Treat construction as call-like
                 RefKind::Inheritance | RefKind::Decorator | RefKind::Unknown => ReferenceKind::Read,
             };
 

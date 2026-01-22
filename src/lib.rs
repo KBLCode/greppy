@@ -13,6 +13,7 @@ pub mod output;
 pub mod parse;
 pub mod search;
 pub mod trace;
+pub mod web;
 
 pub use core::config::Config;
 pub use core::error::{Error, Result};

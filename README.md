@@ -577,6 +577,54 @@ greppy start
 
 ---
 
+## Web UI
+
+Greppy includes a visual web dashboard for codebase exploration.
+
+### Launch
+
+```bash
+greppy web                    # Start on localhost:3000
+greppy web --port 8080        # Custom port
+greppy web --open             # Auto-open browser
+```
+
+### Features
+
+- **Multiple Views** - Stats, Graph, List, Tree, Tables, Cycles, Timeline
+- **Interactive Charts** - Matrix heatmap, Sankey flow, Force-directed graph
+- **Live Updates** - Real-time sync when files change (via daemon)
+- **Symbol Details** - Click any symbol to see callers, callees, refs
+- **Dead Code Highlighting** - Instantly spot unused code
+- **Cycle Detection** - Visualize circular dependencies
+
+### Streamer Mode
+
+For livestreamers and screen sharing, Greppy includes a **Streamer Mode** that hides sensitive paths:
+
+1. Open Settings (gear icon)
+2. Enable "Streamer Mode"
+3. Configure hidden patterns (defaults: `.env*`, `*secret*`, `*credential*`, etc.)
+
+When enabled:
+- Sensitive file paths are replaced with `[HIDDEN]`
+- Redaction happens server-side (not visible in network requests)
+- Visual banner indicates streamer mode is active
+
+### Views
+
+| View | Description |
+|------|-------------|
+| **Stats** | Overview dashboard with charts |
+| **Graph** | Force-directed dependency graph |
+| **List** | Sortable/filterable symbol table |
+| **Tree** | File tree with symbol counts |
+| **Tables** | Matrix heatmap of file dependencies |
+| **Cycles** | Circular dependency visualization |
+| **Timeline** | Index history and snapshots |
+
+---
+
 ## License
 
 MIT
